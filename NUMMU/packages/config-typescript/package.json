@@ -1,0 +1,12 @@
+{
+  "name": "@numu/config-typescript",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "files": [
+    "*.json"
+  ],
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

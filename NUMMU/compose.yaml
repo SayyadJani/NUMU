@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: numu-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: numu_user
+      POSTGRES_PASSWORD: numu_dev_password
+      POSTGRES_DB: numu_db
+    ports:
+      - '5432:5432'
+    volumes:
+      - numu_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  numu_postgres_data:

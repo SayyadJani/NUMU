@@ -1,0 +1,19 @@
+# Judge0 credentials & local configs
+judge0/judge0.conf
+!judge0/judge0.conf.example
+
+# Logs and runtime traces
+*.log
+logs/
+.system_generated/
+
+# OS and Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Test artifacts and temporary outputs
+tests/temp/
+tmp/
+scratch/
