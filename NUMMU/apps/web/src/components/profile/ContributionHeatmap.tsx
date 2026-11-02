@@ -27,50 +27,88 @@ export function ContributionHeatmap({
     dayOfWeek: string;
   } | null>(null);
 
-  // Pre-calculate 52 weeks x 7 days grid with robust fallback
-  const { weeks, monthPositions } = useMemo(() => {
-    const now = new Date();
-    const calculatedWeeks: { days: HeatmapDay[]; weekIndex: number }[] = [];
-    const positions: { weekIndex: number; monthName: string }[] = [];
-    let lastMonth = -1;
+  // Build a GitHub-style grid: columns are weeks (Sun → Sat), last column contains today.
+  const { weeks, monthLabels } = useMemo(() => {
+    const toKey = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-    for (let c = 0; c < 52; c++) {
-      const days: HeatmapDay[] = [];
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // 1. Index incoming data by date (supports rich days and legacy boolean rows)
+    const dayMap = new Map<string, HeatmapDay>();
+    activity.heatmapDays?.forEach((row) =>
+      row?.forEach((day) => {
+        if (day?.date) dayMap.set(day.date, day);
+      })
+    );
+    if (dayMap.size === 0 && activity.heatmapRows?.length) {
       for (let r = 0; r < 7; r++) {
-        const existingDay = activity.heatmapDays?.[r]?.[c];
-        if (existingDay && existingDay.date) {
-          days.push(existingDay);
-        } else {
-          const daysAgo = (51 - c) * 7 + (6 - r);
-          const d = new Date(now);
-          d.setDate(d.getDate() - daysAgo);
-          const dateStr = d.toISOString().split('T')[0]!;
-          const isActive = Boolean(activity.heatmapRows?.[r]?.[c]);
-          days.push({
-            date: dateStr,
-            count: isActive ? 1 : 0,
-            level: isActive ? 2 : 0,
-            isCurrentYear: d.getFullYear() === now.getFullYear(),
-            isFuture: d > now,
-          });
+        for (let c = 0; c < 52; c++) {
+          if (!activity.heatmapRows[r]?.[c]) continue;
+          const d = new Date(today);
+          d.setDate(d.getDate() - ((51 - c) * 7 + (6 - r)));
+          dayMap.set(toKey(d), { date: toKey(d), count: 1, level: 2 });
         }
-      }
-
-      calculatedWeeks.push({ days, weekIndex: c });
-
-      // Determine month for header labeling based on middle of the week
-      const midDayDate = new Date(days[3]?.date || days[0]?.date || now);
-      const monthIndex = midDayDate.getMonth();
-      if (monthIndex !== lastMonth) {
-        positions.push({
-          weekIndex: c,
-          monthName: midDayDate.toLocaleDateString('en-US', { month: 'short' }),
-        });
-        lastMonth = monthIndex;
       }
     }
 
-    return { weeks: calculatedWeeks, monthPositions: positions };
+    // 2. Start on the Sunday ~52 weeks ago so the grid ends on the current week
+    const start = new Date(today);
+    start.setDate(start.getDate() - 52 * 7);
+    start.setDate(start.getDate() - start.getDay());
+
+    const calculatedWeeks: { days: HeatmapDay[]; weekIndex: number }[] = [];
+    const labels: { weekIndex: number; monthName: string; span: number }[] = [];
+    const cursor = new Date(start);
+    let weekIndex = 0;
+
+    while (cursor <= today) {
+      const days: HeatmapDay[] = [];
+      for (let r = 0; r < 7; r++) {
+        const key = toKey(cursor);
+        const existing = dayMap.get(key);
+        const isFuture = cursor > today;
+
+        // Month label goes on the week containing the 1st of the month (GitHub rule)
+        if (cursor.getDate() === 1 && !isFuture) {
+          labels.push({
+            weekIndex,
+            monthName: cursor.toLocaleDateString('en-US', { month: 'short' }),
+            span: 0,
+          });
+        }
+
+        days.push({
+          date: key,
+          count: isFuture ? 0 : existing?.count ?? 0,
+          level: isFuture ? 0 : existing?.level ?? 0,
+          ...(existing?.solvedCount !== undefined && { solvedCount: existing.solvedCount }),
+          isCurrentYear: cursor.getFullYear() === today.getFullYear(),
+          isFuture,
+        });
+        cursor.setDate(cursor.getDate() + 1);
+      }
+      calculatedWeeks.push({ days, weekIndex });
+      weekIndex++;
+    }
+
+    // Label the leading partial month too, if there is room before the next label
+    const firstLabelWeek = labels[0]?.weekIndex ?? calculatedWeeks.length;
+    if (firstLabelWeek >= 2) {
+      labels.unshift({
+        weekIndex: 0,
+        monthName: start.toLocaleDateString('en-US', { month: 'short' }),
+        span: 0,
+      });
+    }
+
+    // Each label spans until the next label; drop labels too narrow to fit text
+    labels.forEach((l, i) => {
+      l.span = (labels[i + 1]?.weekIndex ?? calculatedWeeks.length) - l.weekIndex;
+    });
+
+    return { weeks: calculatedWeeks, monthLabels: labels.filter((l) => l.span >= 2) };
   }, [activity.heatmapDays, activity.heatmapRows]);
 
   const getCellColor = (level: HeatmapDay['level'] = 0, count: number = 0) => {
@@ -143,64 +181,58 @@ export function ContributionHeatmap({
       </div>
 
       {/* ── Heatmap Grid Container ── */}
-      <div className="overflow-x-auto pb-2 -mx-1 px-1">
-        <div className="inline-block min-w-full">
-          {/* Months Row (aligned to exact week columns) */}
-          <div className="flex text-[10px] text-slate-400 font-mono mb-1.5 pl-6 select-none relative h-4">
-            {monthPositions.map((pos, idx) => {
-              // Only render if not colliding with next/previous
-              const nextPos = monthPositions[idx + 1];
-              if (nextPos && nextPos.weekIndex - pos.weekIndex < 3) return null;
-              return (
-                <span
-                  key={pos.weekIndex}
-                  className="absolute"
-                  style={{ left: `${pos.weekIndex * 14 + 24}px` }}
-                >
-                  {pos.monthName}
-                </span>
-              );
-            })}
-          </div>
+      <div className="overflow-x-auto pb-1">
+        {/* Single CSS grid: column 1 = day labels, columns 2..N+1 = weeks.
+            Month labels share the same columns, so they always line up with the cells. */}
+        <div
+          className="grid gap-[3px] min-w-[620px] select-none"
+          style={{ gridTemplateColumns: `28px repeat(${weeks.length}, minmax(0, 1fr))` }}
+        >
+          {/* Months Row */}
+          {monthLabels.map((label) => (
+            <span
+              key={`m-${label.weekIndex}`}
+              className="row-start-1 text-[10px] leading-4 text-slate-400 font-mono whitespace-nowrap overflow-hidden"
+              style={{ gridColumn: `${label.weekIndex + 2} / span ${label.span}` }}
+            >
+              {label.monthName}
+            </span>
+          ))}
 
-          {/* Grid: Day Labels + 52 Week Columns */}
-          <div className="flex items-start gap-[3px]">
-            {/* Day Labels Column (aligned directly with 7 rows) */}
-            <div className="flex flex-col gap-[3px] pr-1.5 text-[9px] text-slate-400 font-mono select-none">
-              <div className="w-5 h-[11px] sm:h-3 flex items-center">Mon</div>
-              <div className="w-5 h-[11px] sm:h-3" />
-              <div className="w-5 h-[11px] sm:h-3 flex items-center">Wed</div>
-              <div className="w-5 h-[11px] sm:h-3" />
-              <div className="w-5 h-[11px] sm:h-3 flex items-center">Fri</div>
-              <div className="w-5 h-[11px] sm:h-3" />
-              <div className="w-5 h-[11px] sm:h-3" />
-            </div>
+          {/* Day Labels (GitHub style: Mon / Wed / Fri on Sun-first rows) */}
+          {['', 'Mon', '', 'Wed', '', 'Fri', ''].map((name, rIdx) => (
+            <span
+              key={`d-${rIdx}`}
+              className="col-start-1 text-[9px] text-slate-400 font-mono flex items-center"
+              style={{ gridRow: rIdx + 2 }}
+            >
+              {name}
+            </span>
+          ))}
 
-            {/* 52 Week Columns */}
-            <div className="flex gap-[3px]">
-              {weeks.map(({ days, weekIndex }) => (
-                <div key={weekIndex} className="flex flex-col gap-[3px]">
-                  {days.map((day, rIdx) => {
-                    const colorClass = getCellColor(day.level, day.count);
-                    return (
-                      <div
-                        key={`${weekIndex}-${rIdx}`}
-                        onMouseEnter={() =>
-                          setHoveredCell({
-                            date: day.date,
-                            count: day.count,
-                            dayOfWeek: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][rIdx] || '',
-                          })
-                        }
-                        onMouseLeave={() => setHoveredCell(null)}
-                        className={`w-[11px] h-[11px] sm:w-3 sm:h-3 rounded-[2px] transition-all duration-100 ${colorClass}`}
-                      />
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
-          </div>
+          {/* Day cells */}
+          {weeks.map(({ days, weekIndex }) =>
+            days.map((day, rIdx) => (
+              <div
+                key={`${weekIndex}-${rIdx}`}
+                style={{ gridColumn: weekIndex + 2, gridRow: rIdx + 2 }}
+                onMouseEnter={
+                  day.isFuture
+                    ? undefined
+                    : () =>
+                        setHoveredCell({
+                          date: day.date,
+                          count: day.count,
+                          dayOfWeek: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][rIdx] || '',
+                        })
+                }
+                onMouseLeave={() => setHoveredCell(null)}
+                className={`aspect-square w-full rounded-[2px] transition-colors duration-100 ${
+                  day.isFuture ? 'invisible' : getCellColor(day.level, day.count)
+                }`}
+              />
+            ))
+          )}
         </div>
       </div>
 
