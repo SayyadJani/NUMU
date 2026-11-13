@@ -1,0 +1,159 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: var(--font-inter), system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: var(--font-mono), 'JetBrains Mono', monospace;
+}
+
+:root {
+  --background: #fbfcfd;
+  --foreground: #0f172a;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+::selection {
+  background-color: #a7f3d0;
+  color: #064e3b;
+}
+
+/* NUMU Signature Animations (Shared with apps/web) */
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+.animate-shimmer {
+  animation: shimmer 2.5s infinite;
+}
+
+@keyframes dashFlow {
+  to {
+    stroke-dashoffset: -100;
+  }
+}
+.animate-dash-flow {
+  animation: dashFlow 3.5s linear infinite;
+}
+
+@keyframes pulseGlow {
+  0%, 100% {
+    opacity: 0.4;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.06);
+  }
+}
+.animate-pulse-glow {
+  animation: pulseGlow 3s ease-in-out infinite;
+}
+
+@keyframes flyAcross1 {
+  0% {
+    transform: translate3d(-15vw, 85vh, 0) rotate(25deg) scale(0.85);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(115vw, -15vh, 0) rotate(12deg) scale(1.1);
+    opacity: 0;
+  }
+}
+@keyframes flyAcross2 {
+  0% {
+    transform: translate3d(-15vw, 45vh, 0) rotate(32deg) scale(0.65);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.85;
+  }
+  88% {
+    opacity: 0.85;
+  }
+  100% {
+    transform: translate3d(115vw, -25vh, 0) rotate(20deg) scale(0.95);
+    opacity: 0;
+  }
+}
+@keyframes flyAcross3 {
+  0% {
+    transform: translate3d(20vw, 110vh, 0) rotate(15deg) scale(0.9);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.9;
+  }
+  88% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translate3d(115vw, 10vh, 0) rotate(8deg) scale(0.75);
+    opacity: 0;
+  }
+}
+@keyframes flyAcross4 {
+  0% {
+    transform: translate3d(-10vw, 20vh, 0) rotate(38deg) scale(0.55);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.7;
+  }
+  85% {
+    opacity: 0.7;
+  }
+  100% {
+    transform: translate3d(90vw, -15vh, 0) rotate(28deg) scale(0.8);
+    opacity: 0;
+  }
+}
+
+.animate-fly-1 {
+  animation: flyAcross1 20s linear infinite;
+}
+.animate-fly-2 {
+  animation: flyAcross2 26s linear infinite 5s;
+}
+.animate-fly-3 {
+  animation: flyAcross3 22s linear infinite 11s;
+}
+.animate-fly-4 {
+  animation: flyAcross4 29s linear infinite 16s;
+}

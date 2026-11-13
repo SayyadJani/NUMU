@@ -25,6 +25,21 @@ const nextConfig: NextConfig = {
     ignoreDuringBuilds: true,
   },
 
+  async redirects() {
+    return [
+      {
+        source: '/dsa/problems/:slug',
+        destination: '/dashboard/dsa/problems/:slug',
+        permanent: false,
+      },
+      {
+        source: '/dsa/topics/:slug',
+        destination: '/dashboard/dsa?topic=:slug',
+        permanent: false,
+      },
+    ];
+  },
+
   async rewrites() {
     const backendUrl = process.env['BACKEND_URL'] || 'http://localhost:4000';
     return [

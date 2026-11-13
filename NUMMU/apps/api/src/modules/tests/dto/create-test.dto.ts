@@ -7,9 +7,32 @@ import {
   IsEnum,
   IsArray,
   IsDateString,
+  IsBoolean,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ContentStatus } from '@prisma/client';
+
+export class TestQuestionItemDto {
+  @ApiProperty({ description: 'Problem ID or slug' })
+  @IsString()
+  problemIdOrSlug!: string;
+
+  @ApiPropertyOptional({ description: 'Marks for this question', default: 20 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  marks?: number;
+
+  @ApiPropertyOptional({ description: '1-based display order index' })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  orderIndex?: number;
+}
 
 export class CreateTestDto {
   @ApiProperty({ description: 'Test title', example: 'Weekly DSA Test - 12' })
@@ -28,6 +51,7 @@ export class CreateTestDto {
 
   @ApiPropertyOptional({ description: 'Week number', example: 12 })
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   weekNumber?: number;
@@ -39,6 +63,7 @@ export class CreateTestDto {
 
   @ApiPropertyOptional({ description: 'Duration in minutes', example: 90, default: 90 })
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(5)
   @Max(360)
@@ -46,6 +71,7 @@ export class CreateTestDto {
 
   @ApiPropertyOptional({ description: 'Passing percentage', example: 60, default: 60 })
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(100)
@@ -53,6 +79,7 @@ export class CreateTestDto {
 
   @ApiPropertyOptional({ description: 'Total marks', example: 100, default: 100 })
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   totalMarks?: number;
@@ -72,9 +99,37 @@ export class CreateTestDto {
   @IsDateString()
   endTime?: string;
 
+  @ApiPropertyOptional({ description: 'Max allowed tab switches before auto-submit', default: 3 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  maxTabSwitches?: number;
+
+  @ApiPropertyOptional({ description: 'Require fullscreen mode during test', default: true })
+  @IsOptional()
+  @IsBoolean()
+  requireFullscreen?: boolean;
+
+  @ApiPropertyOptional({ description: 'Disable copy and paste during test', default: true })
+  @IsOptional()
+  @IsBoolean()
+  disableCopyPaste?: boolean;
+
   @ApiPropertyOptional({ description: 'List of problem slugs or IDs to assign', type: [String] })
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
   problemSlugs?: string[];
+
+  @ApiPropertyOptional({
+    description: 'Ordered question assignments with custom marks per question',
+    type: [TestQuestionItemDto],
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => TestQuestionItemDto)
+  questions?: TestQuestionItemDto[];
 }

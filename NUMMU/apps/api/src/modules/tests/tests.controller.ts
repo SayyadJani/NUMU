@@ -19,6 +19,7 @@ import { TestsService } from './tests.service';
 import { AutosaveAnswerDto } from './dto/autosave-answer.dto';
 import { RunTestCodeDto } from './dto/run-test-code.dto';
 import { SubmitQuestionDto } from './dto/submit-question.dto';
+import { ReportViolationDto, FinalizeAttemptDto } from './dto/report-violation.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Public } from '../auth/decorators/public.decorator';
 import { CurrentUser, type AuthenticatedUser } from '../auth/decorators/current-user.decorator';
@@ -104,6 +105,22 @@ export class TestsController {
     return this.testsService.submitQuestion(slug, user.id, dto);
   }
 
+  @Post(':slug/attempt/violation')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Record a proctoring violation (TAB_SWITCH or FULLSCREEN_EXIT); auto-submits when tab switches > maxTabSwitches',
+  })
+  @ApiParam({ name: 'slug', description: 'Test unique slug' })
+  reportViolation(
+    @Param('slug') slug: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: ReportViolationDto,
+  ) {
+    return this.testsService.reportViolation(slug, user.id, dto);
+  }
+
   @Post(':slug/attempt/finalize')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT')
@@ -113,8 +130,9 @@ export class TestsController {
   finalizeAttempt(
     @Param('slug') slug: string,
     @CurrentUser() user: AuthenticatedUser,
+    @Body() dto?: FinalizeAttemptDto,
   ) {
-    return this.testsService.finalizeAttempt(slug, user.id);
+    return this.testsService.finalizeAttempt(slug, user.id, dto);
   }
 
   @Get(':slug/attempt/result')
@@ -127,5 +145,17 @@ export class TestsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.testsService.getResult(slug, user.id);
+  }
+
+  @Post(':slug/attempt/reset')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT')
+  @ApiOperation({ summary: 'Reset attempt for current trainer or staff user' })
+  @ApiParam({ name: 'slug', description: 'Test unique slug or ID' })
+  resetAttempt(
+    @Param('slug') slug: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.testsService.resetSelfAttempt(slug, user.id);
   }
 }

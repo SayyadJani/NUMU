@@ -3,42 +3,71 @@
 import React, { useState, useEffect } from 'react';
 import {
   Code2,
-  FolderGit2,
+  BookOpen,
   Trophy,
   Zap,
-  TrendingUp,
+  Award,
 } from 'lucide-react';
-import { DUMMY_STATS, DUMMY_USER_PROFILE } from '@/data/dashboard-mock';
 import { progressService } from '@/services/progress.service';
-import type { ProgressOverviewDto } from '@numu/types';
+import { gamificationService } from '@/services/gamification.service';
+import type {
+  ProgressOverviewDto,
+  TopicProgressSummary,
+  GamificationSummaryDto,
+} from '@numu/types';
 
 export function QuickStatsRow() {
   const [overview, setOverview] = useState<ProgressOverviewDto | null>(null);
+  const [topicSummary, setTopicSummary] = useState<TopicProgressSummary | null>(null);
+  const [gamification, setGamification] = useState<GamificationSummaryDto | null>(null);
 
   useEffect(() => {
     let isMounted = true;
-    progressService
-      .getOverview()
-      .then((data) => {
-        if (isMounted) setOverview(data);
-      })
-      .catch(() => {});
+    Promise.allSettled([
+      progressService.getOverview(),
+      progressService.getTopicProgress(),
+      gamificationService.getSummary(-new Date().getTimezoneOffset()),
+    ]).then(([ovRes, topRes, gamRes]) => {
+      if (!isMounted) return;
+      if (ovRes.status === 'fulfilled') setOverview(ovRes.value);
+      if (topRes.status === 'fulfilled') setTopicSummary(topRes.value);
+      if (gamRes.status === 'fulfilled') setGamification(gamRes.value);
+    });
 
     return () => {
       isMounted = false;
     };
   }, []);
 
-  const dsaSolved = overview ? overview.totalProblemsSolved : DUMMY_STATS.dsaSolved;
-  const dsaTotal = overview ? overview.totalAvailable.total : DUMMY_STATS.dsaTotal;
-  const dsaEasy = overview ? overview.difficulty.easy : DUMMY_STATS.dsaEasy;
-  const dsaMedium = overview ? overview.difficulty.medium : DUMMY_STATS.dsaMedium;
-  const dsaHard = overview ? overview.difficulty.hard : DUMMY_STATS.dsaHard;
+  const dsaSolved = overview ? overview.totalProblemsSolved : 0;
+  const dsaTotal = overview ? overview.totalAvailable.total : 0;
+  const dsaEasy = overview ? overview.difficulty.easy : 0;
+  const dsaMedium = overview ? overview.difficulty.medium : 0;
+  const dsaHard = overview ? overview.difficulty.hard : 0;
   const dsaPercent = dsaTotal > 0 ? Math.min(100, Math.round((dsaSolved / dsaTotal) * 100)) : 0;
+
+  const topics = topicSummary?.topics ?? [];
+  const totalTopics = topicSummary?.totalTopics ?? topics.length;
+  const activeTopics = topics.filter((t) => t.solvedProblems > 0).length;
+  const fullyMasteredTopics = topics.filter(
+    (t) => t.totalProblems > 0 && t.solvedProblems >= t.totalProblems,
+  ).length;
+  const topicPercent =
+    totalTopics > 0 ? Math.min(100, Math.round((activeTopics / totalTopics) * 100)) : 0;
+
+  const totalXp = gamification ? gamification.xp.total : 0;
+  const currentLevel = gamification ? gamification.level.current : 1;
+  const badgesEarned = gamification ? gamification.badgesSummary.totalEarned : 0;
+  const badgesTotal = gamification ? gamification.badgesSummary.totalAvailable : 6;
+
+  const acceptanceRate = overview ? overview.acceptanceRate : '0.0%';
+  const acceptedSubs = overview ? overview.acceptedSubmissions : 0;
+  const totalSubs = overview ? overview.totalSubmissions : 0;
+  const accuracyNum = parseFloat(acceptanceRate) || 0;
 
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 text-left">
-      {/* 1. Problems Solved */}
+      {/* 1. DSA Problems Solved */}
       <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/80 p-4 sm:p-5 shadow-xs hover:shadow-md hover:border-emerald-300 transition-all flex flex-col justify-between group">
         <div className="flex items-center justify-between mb-2">
           <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
@@ -62,7 +91,7 @@ export function QuickStatsRow() {
               style={{ width: `${dsaPercent}%` }}
             />
           </div>
-          <div className="flex items-center justify-between text-[10px] text-slate-400">
+          <div className="flex items-center justify-between text-[10px] text-slate-500 font-medium">
             <span>Easy: {dsaEasy}</span>
             <span>Med: {dsaMedium}</span>
             <span>Hard: {dsaHard}</span>
@@ -70,42 +99,42 @@ export function QuickStatsRow() {
         </div>
       </div>
 
-      {/* 2. Projects Built */}
+      {/* 2. Shared Curriculum Topics Covered */}
       <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/80 p-4 sm:p-5 shadow-xs hover:shadow-md hover:border-blue-300 transition-all flex flex-col justify-between group">
         <div className="flex items-center justify-between mb-2">
           <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-            Capstones
+            Curriculum Topics
           </span>
           <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center font-bold text-xs group-hover:bg-blue-600 group-hover:text-white transition-colors">
-            <FolderGit2 className="w-3.5 h-3.5" />
+            <BookOpen className="w-3.5 h-3.5" />
           </div>
         </div>
 
         <div>
           <div className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight leading-none">
-            {DUMMY_STATS.projectsBuilt}
+            {activeTopics}
             <span className="text-xs sm:text-sm font-normal text-slate-400 ml-1">
-              / {DUMMY_STATS.projectsTarget}
+              / {totalTopics}
             </span>
           </div>
           <div className="w-full h-1.5 rounded-full bg-slate-100 overflow-hidden my-2">
             <div
               className="h-full rounded-full bg-blue-600 transition-all"
-              style={{ width: `${Math.round((DUMMY_STATS.projectsBuilt / DUMMY_STATS.projectsTarget) * 100)}%` }}
+              style={{ width: `${topicPercent}%` }}
             />
           </div>
           <div className="flex items-center justify-between text-[10px] text-blue-700 font-semibold">
-            <span>DevPulse SaaS active</span>
-            <span>Sprint 3/5</span>
+            <span>{fullyMasteredTopics} Fully Mastered</span>
+            <span>{topicPercent}% Covered</span>
           </div>
         </div>
       </div>
 
-      {/* 3. Contest Rating */}
+      {/* 3. Total XP & Badges Earned */}
       <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/80 p-4 sm:p-5 shadow-xs hover:shadow-md hover:border-amber-300 transition-all flex flex-col justify-between group">
         <div className="flex items-center justify-between mb-2">
           <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-            Contest Rating
+            Earned XP & Level
           </span>
           <div className="w-7 h-7 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center font-bold text-xs group-hover:bg-amber-600 group-hover:text-white transition-colors">
             <Trophy className="w-3.5 h-3.5" />
@@ -114,27 +143,27 @@ export function QuickStatsRow() {
 
         <div>
           <div className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight leading-none">
-            {DUMMY_STATS.contestRating}
+            {totalXp.toLocaleString()}
             <span className="text-xs font-bold text-emerald-600 ml-1.5">
-              {DUMMY_STATS.contestRatingDelta}
+              XP
             </span>
           </div>
           <div className="flex items-center gap-1.5 text-xs text-amber-700 font-semibold my-2">
-            <TrendingUp className="w-3.5 h-3.5" />
-            <span>Top 8% globally</span>
+            <Award className="w-3.5 h-3.5" />
+            <span>Level {currentLevel} Developer</span>
           </div>
-          <div className="flex items-center justify-between text-[10px] text-slate-400">
-            <span>Rank #{DUMMY_USER_PROFILE.globalRank}</span>
-            <span>Weekly #43 soon</span>
+          <div className="flex items-center justify-between text-[10px] text-slate-500">
+            <span>{badgesEarned}/{badgesTotal} Badges</span>
+            <span>Verified Ledger</span>
           </div>
         </div>
       </div>
 
-      {/* 4. Placement Readiness */}
+      {/* 4. Judge0 Acceptance Rate */}
       <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/80 p-4 sm:p-5 shadow-xs hover:shadow-md hover:border-emerald-300 transition-all flex flex-col justify-between group">
         <div className="flex items-center justify-between mb-2">
           <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-            Placement Ready
+            Judge0 Accuracy
           </span>
           <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center font-bold text-xs group-hover:bg-[#0b5c39] group-hover:text-white transition-colors">
             <Zap className="w-3.5 h-3.5" />
@@ -143,17 +172,17 @@ export function QuickStatsRow() {
 
         <div>
           <div className="text-xl sm:text-2xl font-black text-emerald-800 tracking-tight leading-none">
-            {DUMMY_USER_PROFILE.readinessScore}%
+            {acceptanceRate}
           </div>
           <div className="w-full h-1.5 rounded-full bg-slate-100 overflow-hidden my-2">
             <div
               className="h-full rounded-full bg-emerald-600 transition-all"
-              style={{ width: `${DUMMY_USER_PROFILE.readinessScore}%` }}
+              style={{ width: `${Math.min(100, Math.round(accuracyNum))}%` }}
             />
           </div>
           <div className="flex items-center justify-between text-[10px] text-slate-500">
-            <span>High Readiness</span>
-            <span className="text-emerald-700 font-bold">Offer Track ↗</span>
+            <span>{acceptedSubs} Accepted</span>
+            <span className="text-emerald-700 font-bold">{totalSubs} Submissions</span>
           </div>
         </div>
       </div>

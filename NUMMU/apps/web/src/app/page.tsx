@@ -1,40 +1,49 @@
-import { Header } from '@/components/layout/header';
-import { Footer } from '@/components/layout/footer';
-import { HeroSection } from '@/components/landing/hero-section';
-import { FeaturesGrid } from '@/components/landing/features-grid';
-import { JourneySection } from '@/components/landing/journey-section';
-import { DualShowcase } from '@/components/landing/dual-showcase';
-import { CollegeSection } from '@/components/landing/college-section';
-import { TestimonialSection } from '@/components/landing/testimonial-section';
-import { CtaSection } from '@/components/landing/cta-section';
+import { LandingNav } from '@/components/landing/landing-nav';
+import { LandingHero } from '@/components/landing/landing-hero';
+import {
+  AfterSignupSection,
+  CaseStudiesSection,
+  ComparisonSection,
+  FaqSection,
+  FunnelSection,
+  PillarsSection,
+  PlansSection,
+  TimelineSection,
+  TracksSection,
+} from '@/components/landing/landing-sections';
+import { BeforeAfterSection } from '@/components/landing/landing-before-after';
+import { LandingFooter } from '@/components/landing/landing-footer';
 
 export default function HomePage() {
   return (
-    <>
-      <Header />
+    <div className="bg-flx-surface font-sans text-flx-text">
+      <LandingNav />
       <main>
-      {/* 1. Hero with Dashboard Mockup */}
-      <HeroSection />
-
-      {/* 2. 6-column Feature Cards */}
-      <FeaturesGrid />
-
-      {/* 3. Learning Journey Step-Flow */}
-      <JourneySection />
-
-      {/* 4. DSA + Development dark showcase cards */}
-      <DualShowcase />
-
-      {/* 5. College / Trainer section */}
-      <CollegeSection />
-
-      {/* 6. Testimonial + Stats band */}
-      <TestimonialSection />
-
-      {/* 7. Dark green CTA Banner */}
-      <CtaSection />
-    </main>
-    <Footer />
-  </>
+        {/* 1. Dark green hero + company strip */}
+        <LandingHero />
+        {/* 2. Without vs With NUMU */}
+        <BeforeAfterSection />
+        {/* 3. Meet NUMU – pillars + testimonials */}
+        <PillarsSection />
+        {/* 4. Post-signup features carousel */}
+        <AfterSignupSection />
+        {/* 5. Plans */}
+        <PlansSection />
+        {/* 6. Curation funnel */}
+        <FunnelSection />
+        {/* 7. Tracks marquee */}
+        <TracksSection />
+        {/* 8. Timeline */}
+        <TimelineSection />
+        {/* 9. Comparison table */}
+        <ComparisonSection />
+        {/* 10. College case studies */}
+        <CaseStudiesSection />
+        {/* 11. FAQ */}
+        <FaqSection />
+      </main>
+      {/* 12. Lime CTA + dark footer */}
+      <LandingFooter />
+    </div>
   );
 }

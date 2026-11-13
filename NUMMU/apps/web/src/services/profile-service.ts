@@ -25,10 +25,49 @@ import type {
   ActivityTimelineEvent,
 } from '@/types/profile';
 
-// In-memory request cache for the current session lifecycle
-let cachedProfileApiResponse: any = null;
-let inFlightProfilePromise: Promise<any> | null = null;
-let inFlightKey: string | null = null;
+// Per-user in-memory request cache (keyed by username / '__me__')
+const profileCache = new Map<string, { data: any; timestamp: number }>();
+const inFlightMap = new Map<string, Promise<any>>();
+const CACHE_TTL_MS = 15000;
+
+export function clearProfileCache(): void {
+  profileCache.clear();
+  inFlightMap.clear();
+}
+
+export function getEmptyProfile(username: string): UserProfile {
+  return {
+    username,
+    displayName: username,
+    isVerified: false,
+    avatarUrl: null,
+    college: 'Not specified',
+    department: 'Computer Science',
+    batch: 'Class of 2026',
+    bio: '',
+    quote: '',
+    location: undefined,
+    tags: [],
+    socials: [],
+    joinedDate: undefined,
+    stats: {
+      problemsSolved: 0,
+      easySolved: 0,
+      mediumSolved: 0,
+      hardSolved: 0,
+      acceptanceRate: '0.0%',
+      dayStreak: 0,
+      maxStreak: 0,
+      contestRating: 1200,
+      totalTestsConducted: 0,
+      testsAttended: 0,
+      testsMissed: 0,
+      testsCompleted: 0,
+      projectsCompleted: 0,
+      globalRank: 1,
+    },
+  };
+}
 
 function formatTimeAgo(dateInput: string | Date): string {
   try {
@@ -51,26 +90,29 @@ function formatTimeAgo(dateInput: string | Date): string {
 async function fetchEnrichedProfile(username?: string): Promise<any> {
   const cleanUsername = username?.trim().toLowerCase();
   const cacheKey = cleanUsername || '__me__';
+  const now = Date.now();
 
-  if (cachedProfileApiResponse) {
-    if (!cleanUsername || cachedProfileApiResponse.username?.toLowerCase() === cleanUsername) {
-      return cachedProfileApiResponse;
-    }
+  const cached = profileCache.get(cacheKey);
+  if (cached && now - cached.timestamp < CACHE_TTL_MS) {
+    return cached.data;
   }
 
   // Deduplicate in-flight requests so concurrent callers share a single network call
-  if (inFlightProfilePromise && inFlightKey === cacheKey) {
-    return inFlightProfilePromise;
+  const inFlight = inFlightMap.get(cacheKey);
+  if (inFlight) {
+    return inFlight;
   }
 
-  inFlightKey = cacheKey;
-  inFlightProfilePromise = (async () => {
+  const promise = (async () => {
     try {
       // 1. If username specified, fetch public profile by handle
       if (cleanUsername) {
         const res = await apiClient.get<any>(`/profile/${encodeURIComponent(cleanUsername)}`);
         if (res && res.id) {
-          cachedProfileApiResponse = res;
+          profileCache.set(cacheKey, { data: res, timestamp: Date.now() });
+          if (res.username) {
+            profileCache.set(res.username.toLowerCase(), { data: res, timestamp: Date.now() });
+          }
           return res;
         }
         throw new Error(`Profile not found for username: ${username}`);
@@ -79,18 +121,21 @@ async function fetchEnrichedProfile(username?: string): Promise<any> {
       // 2. Otherwise fetch current authenticated user profile
       const meRes = await apiClient.get<any>('/profile/me');
       if (meRes && meRes.id) {
-        cachedProfileApiResponse = meRes;
+        profileCache.set('__me__', { data: meRes, timestamp: Date.now() });
+        if (meRes.username) {
+          profileCache.set(meRes.username.toLowerCase(), { data: meRes, timestamp: Date.now() });
+        }
         return meRes;
       }
 
       throw new Error('Authenticated user profile could not be loaded from database');
     } finally {
-      inFlightProfilePromise = null;
-      inFlightKey = null;
+      inFlightMap.delete(cacheKey);
     }
   })();
 
-  return inFlightProfilePromise;
+  inFlightMap.set(cacheKey, promise);
+  return promise;
 }
 
 export const profileService = {
@@ -183,7 +228,7 @@ export const profileService = {
     });
 
     // Invalidate profile response cache on successful mutation
-    cachedProfileApiResponse = null;
+    clearProfileCache();
 
     // Fetch and return the genuine persisted database record
     return await this.getProfile('');
@@ -236,49 +281,60 @@ export const profileService = {
       };
     }
 
-    const [overview, topicProgress, history] = await Promise.all([
-      progressService.getOverview(),
-      progressService.getTopicProgress(),
-      progressService.getSubmissionHistory({ limit: 20 }),
-    ]);
+    try {
+      const [overview, topicProgress, history] = await Promise.all([
+        progressService.getOverview().catch(() => null),
+        progressService.getTopicProgress().catch(() => null),
+        progressService.getSubmissionHistory({ limit: 20 }).catch(() => null),
+      ]);
 
-    const topTopics: DsaTopic[] = topicProgress.topics.map((t) => ({
-      name: t.name,
-      percentage: t.percentage,
-      solvedCount: t.solvedProblems,
-      totalCount: t.totalProblems,
-    }));
+      const topTopics: DsaTopic[] = (topicProgress?.topics || []).map((t) => ({
+        name: t.name,
+        percentage: t.percentage,
+        solvedCount: t.solvedProblems,
+        totalCount: t.totalProblems,
+      }));
 
-    const recentSubmissions: DsaSubmission[] = history.items.map((sub) => {
-      let diff: 'Easy' | 'Medium' | 'Hard' = 'Medium';
-      if (sub.problemTitle.toLowerCase().includes('two sum') || sub.problemTitle.toLowerCase().includes('climb')) {
-        diff = 'Easy';
-      }
+      const recentSubmissions: DsaSubmission[] = (history?.items || []).map((sub) => {
+        let diff: 'Easy' | 'Medium' | 'Hard' = 'Medium';
+        if (sub.problemTitle.toLowerCase().includes('two sum') || sub.problemTitle.toLowerCase().includes('climb')) {
+          diff = 'Easy';
+        }
+        return {
+          id: sub.id,
+          title: sub.problemTitle,
+          difficulty: diff,
+          status: sub.verdict === 'ACCEPTED' ? 'Accepted' : sub.verdict === 'TIME_LIMIT_EXCEEDED' ? 'Time Limit Exceeded' : 'Wrong Answer',
+          runtime: sub.runtimeMs ? `${sub.runtimeMs}ms` : '42ms',
+          memory: sub.memoryKb ? `${(sub.memoryKb / 1024).toFixed(1)}MB` : '36.4MB',
+          language: sub.language === 'typescript' ? 'TypeScript' : sub.language === 'python' ? 'Python' : sub.language === 'cpp' ? 'C++' : 'JavaScript',
+          timeAgo: formatTimeAgo(sub.createdAt),
+        };
+      });
+
       return {
-        id: sub.id,
-        title: sub.problemTitle,
-        difficulty: diff,
-        status: sub.verdict === 'ACCEPTED' ? 'Accepted' : sub.verdict === 'TIME_LIMIT_EXCEEDED' ? 'Time Limit Exceeded' : 'Wrong Answer',
-        runtime: sub.runtimeMs ? `${sub.runtimeMs}ms` : '42ms',
-        memory: sub.memoryKb ? `${(sub.memoryKb / 1024).toFixed(1)}MB` : '36.4MB',
-        language: sub.language === 'typescript' ? 'TypeScript' : sub.language === 'python' ? 'Python' : sub.language === 'cpp' ? 'C++' : 'JavaScript',
-        timeAgo: formatTimeAgo(sub.createdAt),
+        solved: {
+          easy: overview?.difficulty.easy ?? 0,
+          medium: overview?.difficulty.medium ?? 0,
+          hard: overview?.difficulty.hard ?? 0,
+          total: overview?.totalProblemsSolved ?? 0,
+        },
+        topTopics,
+        acceptanceRate: overview?.acceptanceRate ?? '0.0%',
+        totalSubmissions: overview?.totalSubmissions ?? 0,
+        globalRank: 1,
+        recentSubmissions,
       };
-    });
-
-    return {
-      solved: {
-        easy: overview.difficulty.easy,
-        medium: overview.difficulty.medium,
-        hard: overview.difficulty.hard,
-        total: overview.totalProblemsSolved,
-      },
-      topTopics,
-      acceptanceRate: overview.acceptanceRate,
-      totalSubmissions: overview.totalSubmissions,
-      globalRank: 1,
-      recentSubmissions,
-    };
+    } catch {
+      return {
+        solved: { easy: 0, medium: 0, hard: 0, total: 0 },
+        topTopics: [],
+        acceptanceRate: '0.0%',
+        totalSubmissions: 0,
+        globalRank: 1,
+        recentSubmissions: [],
+      };
+    }
   },
 
   /**
@@ -306,7 +362,7 @@ export const profileService = {
     await apiClient.patch('/profile/me', {
       skills: skills.map((s) => s.name),
     });
-    cachedProfileApiResponse = null;
+    clearProfileCache();
   },
 
   /**

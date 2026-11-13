@@ -66,14 +66,47 @@ export class ProfilesController {
   private async enrichProfileWithStats(user: any) {
     const oneYearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
 
-    const [overview, topicProgress, gamificationSummary, badges, activity, history] =
+    // Timeout helper to guarantee fast responses under any DB load
+    const withTimeout = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> => {
+      return Promise.race([
+        promise,
+        new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+      ]);
+    };
+
+    const [overview, topicProgress, activity, badges, history, userAttemptsRaw, totalPublishedTestsRaw] =
       await Promise.all([
-        this.progressService.getOverview(user.id).catch(() => null),
-        this.progressService.getTopicProgress(user.id).catch(() => null),
-        this.gamificationService.getSummary(user.id).catch(() => null),
-        this.gamificationService.getBadges(user.id, { page: 1, limit: 50 }).catch(() => null),
-        this.progressService.getActivitySummary(user.id, { startDate: oneYearAgo }).catch(() => null),
-        this.progressService.getSubmissionHistory(user.id, { limit: 20 }).catch(() => null),
+        withTimeout(this.progressService.getOverview(user.id).catch(() => null), 2500, null),
+        withTimeout(this.progressService.getTopicProgress(user.id).catch(() => null), 2500, null),
+        withTimeout(this.progressService.getActivitySummary(user.id, { startDate: oneYearAgo }).catch(() => null), 2500, null),
+        withTimeout(this.gamificationService.getBadges(user.id, { page: 1, limit: 50 }).catch(() => null), 2500, null),
+        withTimeout(this.progressService.getSubmissionHistory(user.id, { limit: 20 }).catch(() => null), 2500, null),
+        withTimeout(
+          this.prisma.testAttempt.findMany({
+            where: { userId: user.id },
+            include: {
+              test: {
+                select: {
+                  id: true,
+                  title: true,
+                  slug: true,
+                  weekNumber: true,
+                  createdAt: true,
+                },
+              },
+            },
+            orderBy: { createdAt: 'desc' },
+          }).catch(() => []),
+          2500,
+          []
+        ),
+        withTimeout(
+          this.prisma.test.count({
+            where: { status: 'PUBLISHED' },
+          }).catch(() => 0),
+          1500,
+          0
+        ),
       ]);
 
     const problemsSolved = overview?.totalProblemsSolved ?? 0;
@@ -83,59 +116,39 @@ export class ProfilesController {
     const totalAvailable = overview?.totalAvailable.total ?? 7;
     const acceptanceRate = overview?.acceptanceRate ?? '0.0%';
     const totalSubmissions = overview?.totalSubmissions ?? 0;
-    const dayStreak = gamificationSummary?.streak.current ?? activity?.currentStreak ?? 0;
-    const maxStreak = gamificationSummary?.streak.longest ?? activity?.longestStreak ?? 0;
+    const dayStreak = activity?.currentStreak ?? 0;
+    const maxStreak = activity?.longestStreak ?? 0;
 
-    // Fast dynamic global rank query from database
-    let globalRank = 142;
-    try {
-      const betterSolvers = await this.prisma.submission.groupBy({
-        by: ['userId'],
-        where: { verdict: 'ACCEPTED' },
-        having: {
-          problemId: {
-            _count: {
-              gt: problemsSolved,
+    // Fast dynamic global rank calculation
+    let globalRank = 1;
+    if (problemsSolved > 0) {
+      try {
+        const betterSolvers = await withTimeout(
+          this.prisma.submission.groupBy({
+            by: ['userId'],
+            where: { verdict: 'ACCEPTED' },
+            having: {
+              problemId: {
+                _count: {
+                  gt: problemsSolved,
+                },
+              },
             },
-          },
-        },
-      });
-      globalRank = Math.max(1, (betterSolvers?.length ?? 0) + 1);
-    } catch {
-      globalRank = 142;
+          }),
+          1500,
+          []
+        );
+        globalRank = Math.max(1, (betterSolvers?.length ?? 0) + 1);
+      } catch {
+        globalRank = 1;
+      }
     }
 
     // Dynamic rating computed from accepted problems and verified activity
     const contestRating = Math.max(1200, 1200 + problemsSolved * 60 + Math.min(150, totalSubmissions * 4) + dayStreak * 15);
 
-    // Assessment statistics from database (genuine user attempts)
-    let userAttempts: any[] = [];
-    let totalPublishedTests = 0;
-    try {
-      [userAttempts, totalPublishedTests] = await Promise.all([
-        this.prisma.testAttempt.findMany({
-          where: { userId: user.id },
-          include: {
-            test: {
-              select: {
-                id: true,
-                title: true,
-                slug: true,
-                weekNumber: true,
-                createdAt: true,
-              },
-            },
-          },
-          orderBy: { createdAt: 'desc' },
-        }),
-        this.prisma.test.count({
-          where: { status: 'PUBLISHED' },
-        }),
-      ]);
-    } catch {
-      userAttempts = [];
-      totalPublishedTests = 0;
-    }
+    const userAttempts = Array.isArray(userAttemptsRaw) ? userAttemptsRaw : [];
+    const totalPublishedTests = typeof totalPublishedTestsRaw === 'number' ? totalPublishedTestsRaw : 0;
 
     const testsAttended = userAttempts.filter(
       (a) => a.status === 'SUBMITTED' || a.status === 'EXPIRED',
@@ -182,7 +195,7 @@ export class ProfilesController {
         testsAttended,
         testsMissed,
         testsCompleted: testsAttended,
-        projectsCompleted: 3,
+        projectsCompleted: 0,
         globalRank,
       },
       topicProgress: topicProgress?.topics ?? [],

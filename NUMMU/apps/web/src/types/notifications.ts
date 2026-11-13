@@ -27,6 +27,7 @@ export interface Notification {
   isRead: boolean;
   icon: string;       // emoji or icon name
   iconBg: string;     // tailwind bg color
+  linkUrl?: string;
 }
 
 export interface NotificationGroup {

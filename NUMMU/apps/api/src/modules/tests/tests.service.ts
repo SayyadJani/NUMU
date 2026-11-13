@@ -8,12 +8,13 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { SubmissionsService } from '../submissions/submissions.service';
 import { GamificationService } from '../gamification/gamification.service';
-import { CreateTestDto } from './dto/create-test.dto';
+import { CreateTestDto, TestQuestionItemDto } from './dto/create-test.dto';
 import { UpdateTestDto } from './dto/update-test.dto';
 import { AutosaveAnswerDto } from './dto/autosave-answer.dto';
 import { RunTestCodeDto } from './dto/run-test-code.dto';
 import { SubmitQuestionDto } from './dto/submit-question.dto';
-import { ContentStatus, TestAttemptStatus, SubmissionVerdict } from '@prisma/client';
+import { ReportViolationDto, FinalizeAttemptDto } from './dto/report-violation.dto';
+import { ContentStatus, TestAttemptStatus, SubmissionVerdict, TestViolationType, Role } from '@prisma/client';
 
 @Injectable()
 export class TestsService {
@@ -119,8 +120,10 @@ export class TestsService {
    * Get single published test details and instructions.
    */
   async getTestBySlug(slug: string, userId?: string) {
-    const test = await this.prisma.test.findUnique({
-      where: { slug },
+    const test = await this.prisma.test.findFirst({
+      where: {
+        OR: [{ slug }, { id: slug }],
+      },
       include: {
         questions: {
           include: {
@@ -152,7 +155,20 @@ export class TestsService {
       },
     });
 
-    if (!test || test.status !== ContentStatus.PUBLISHED) {
+    if (!test) {
+      throw new NotFoundException(`Weekly Test "${slug}" not found`);
+    }
+
+    const requestingUser = userId
+      ? await this.prisma.user.findUnique({
+          where: { id: userId },
+          select: { role: true },
+        })
+      : null;
+    const isStaff =
+      requestingUser?.role === Role.PLATFORM_ADMIN || requestingUser?.role === Role.TRAINER;
+
+    if (test.status !== ContentStatus.PUBLISHED && !isStaff) {
       throw new NotFoundException(`Weekly Test "${slug}" not found or not published`);
     }
 
@@ -209,8 +225,10 @@ export class TestsService {
    * Student Starts or Resumes a Test Attempt (Idempotent).
    */
   async startOrResumeAttempt(slug: string, userId: string) {
-    const test = await this.prisma.test.findUnique({
-      where: { slug },
+    const test = await this.prisma.test.findFirst({
+      where: {
+        OR: [{ slug }, { id: slug }],
+      },
       include: {
         questions: {
           include: {
@@ -226,16 +244,29 @@ export class TestsService {
       },
     });
 
-    if (!test || test.status !== ContentStatus.PUBLISHED) {
+    if (!test) {
+      throw new NotFoundException(`Weekly Test "${slug}" not found`);
+    }
+
+    const requestingUser = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    const isStaff =
+      requestingUser?.role === Role.PLATFORM_ADMIN || requestingUser?.role === Role.TRAINER;
+
+    if (test.status !== ContentStatus.PUBLISHED && !isStaff) {
       throw new NotFoundException(`Weekly Test "${slug}" not found or not available`);
     }
 
-    if (test.startTime && new Date() < new Date(test.startTime)) {
-      throw new BadRequestException('This test has not started yet.');
-    }
+    if (!isStaff) {
+      if (test.startTime && new Date() < new Date(test.startTime)) {
+        throw new BadRequestException('This test has not started yet.');
+      }
 
-    if (test.endTime && new Date() > new Date(test.endTime)) {
-      throw new BadRequestException('This test has concluded and is no longer open for attempts.');
+      if (test.endTime && new Date() > new Date(test.endTime)) {
+        throw new BadRequestException('This test has concluded and is no longer open for attempts.');
+      }
     }
 
     // 1. Check for existing attempt
@@ -252,6 +283,64 @@ export class TestsService {
     });
 
     const now = new Date();
+
+    // If staff (Trainer / Platform Admin) has a submitted or expired attempt,
+    // automatically reset it so they can conduct repeated live test-runs without barrier
+    if (
+      attempt &&
+      isStaff &&
+      (attempt.status === TestAttemptStatus.SUBMITTED || now.getTime() > new Date(attempt.expiresAt).getTime())
+    ) {
+      await this.prisma.testAnswer.deleteMany({ where: { attemptId: attempt.id } });
+      await this.prisma.testViolation.deleteMany({ where: { attemptId: attempt.id } });
+
+      const newExpiresAt = new Date(now.getTime() + test.durationMinutes * 60 * 1000);
+      attempt = await this.prisma.testAttempt.update({
+        where: { id: attempt.id },
+        data: {
+          status: TestAttemptStatus.IN_PROGRESS,
+          startedAt: now,
+          expiresAt: newExpiresAt,
+          submittedAt: null,
+          score: 0,
+          percentage: 0,
+          passed: false,
+          currentQuestion: 0,
+          tabSwitchCount: 0,
+          fullscreenExitCount: 0,
+          autoSubmitted: false,
+          terminationReason: null,
+        },
+        include: {
+          answers: true,
+        },
+      });
+
+      const initialAnswersData = test.questions.map((q) => {
+        const bp = (q.problem.boilerplate as Record<string, string>) || {};
+        const defaultCode = bp['python'] || bp['python3'] || Object.values(bp)[0] || '';
+        return {
+          attemptId: attempt!.id,
+          problemId: q.problem.id,
+          code: defaultCode,
+          language: 'python',
+          status: 'unanswered',
+          isMarkedForReview: false,
+          isSubmitted: false,
+        };
+      });
+
+      if (initialAnswersData.length > 0) {
+        await this.prisma.testAnswer.createMany({
+          data: initialAnswersData,
+        });
+
+        attempt = await this.prisma.testAttempt.findUnique({
+          where: { id: attempt.id },
+          include: { answers: true },
+        });
+      }
+    }
 
     // 2. If no attempt, initialize new attempt
     if (!attempt) {
@@ -302,13 +391,45 @@ export class TestsService {
       throw new BadRequestException('Failed to initialize test attempt.');
     }
 
+    // Format questions array for client (never expose hidden test cases!)
+    const formattedQuestions = test.questions.map((q) => {
+      return {
+        id: q.id,
+        number: q.orderIndex,
+        problemId: q.problem.id,
+        slug: q.problem.slug,
+        title: q.problem.title,
+        difficulty: q.problem.difficulty,
+        marks: q.marks,
+        description: q.problem.description,
+        constraints: q.problem.constraints,
+        hints: q.problem.hints,
+        boilerplate: q.problem.boilerplate,
+        topics: q.problem.topics.map((t) => t.topic.name),
+        examples: q.problem.examples.map((ex) => ({
+          input: ex.input,
+          output: ex.output,
+          explanation: ex.explanation,
+        })),
+        testCases: q.problem.examples.map((ex) => ({
+          input: ex.input,
+          expectedOutput: ex.output,
+        })),
+      };
+    });
+
     // 3. Check if server authoritative deadline has passed
     const isExpired =
       attempt.status === TestAttemptStatus.IN_PROGRESS &&
       now.getTime() > new Date(attempt.expiresAt).getTime();
 
     if (isExpired) {
-      return this.finalizeAttempt(slug, userId);
+      const finalized = await this.finalizeAttempt(slug, userId);
+      return {
+        ...finalized,
+        totalSecondsLeft: 0,
+        questions: formattedQuestions,
+      };
     }
 
     // 4. Calculate exact remaining seconds from authoritative server deadline
@@ -342,33 +463,6 @@ export class TestsService {
       }
     });
 
-    // Format questions array for client (never expose hidden test cases!)
-    const formattedQuestions = test.questions.map((q) => {
-      return {
-        id: q.id,
-        number: q.orderIndex,
-        problemId: q.problem.id,
-        slug: q.problem.slug,
-        title: q.problem.title,
-        difficulty: q.problem.difficulty,
-        marks: q.marks,
-        description: q.problem.description,
-        constraints: q.problem.constraints,
-        hints: q.problem.hints,
-        boilerplate: q.problem.boilerplate,
-        topics: q.problem.topics.map((t) => t.topic.name),
-        examples: q.problem.examples.map((ex) => ({
-          input: ex.input,
-          output: ex.output,
-          explanation: ex.explanation,
-        })),
-        testCases: q.problem.examples.map((ex) => ({
-          input: ex.input,
-          expectedOutput: ex.output,
-        })),
-      };
-    });
-
     return {
       attemptId: attempt.id,
       test: {
@@ -379,14 +473,113 @@ export class TestsService {
         passPercentage: test.passPercentage,
         totalMarks: test.totalMarks,
         totalQuestions: test.questions.length,
+        maxTabSwitches: test.maxTabSwitches ?? 3,
+        requireFullscreen: test.requireFullscreen ?? true,
+        disableCopyPaste: test.disableCopyPaste ?? true,
       },
       startedAt: attempt.startedAt,
       expiresAt: attempt.expiresAt,
       totalSecondsLeft,
       currentQuestion: attempt.currentQuestion,
       status: attempt.status,
+      tabSwitchCount: attempt.tabSwitchCount ?? 0,
+      fullscreenExitCount: attempt.fullscreenExitCount ?? 0,
+      autoSubmitted: attempt.autoSubmitted ?? false,
+      terminationReason: attempt.terminationReason ?? null,
       questions: formattedQuestions,
       answers: answersMap,
+    };
+  }
+
+  /**
+   * Record a proctoring violation (TAB_SWITCH or FULLSCREEN_EXIT).
+   * If tabSwitchCount exceeds test.maxTabSwitches (default > 3), automatically finalizes and submits the test.
+   */
+  async reportViolation(slug: string, userId: string, dto: ReportViolationDto) {
+    const test = await this.prisma.test.findFirst({
+      where: {
+        OR: [{ slug }, { id: slug }],
+      },
+      select: { id: true, maxTabSwitches: true, requireFullscreen: true },
+    });
+
+    if (!test) {
+      throw new NotFoundException(`Test "${slug}" not found`);
+    }
+
+    const attempt = await this.prisma.testAttempt.findUnique({
+      where: {
+        testId_userId: {
+          testId: test.id,
+          userId,
+        },
+      },
+    });
+
+    if (!attempt) {
+      throw new BadRequestException('No active attempt found for this test.');
+    }
+
+    const maxTabSwitches = test.maxTabSwitches ?? 3;
+
+    if (attempt.status !== TestAttemptStatus.IN_PROGRESS) {
+      return {
+        attemptId: attempt.id,
+        status: attempt.status,
+        tabSwitchCount: attempt.tabSwitchCount,
+        fullscreenExitCount: attempt.fullscreenExitCount,
+        maxTabSwitches,
+        autoSubmitted: attempt.autoSubmitted,
+        terminationReason: attempt.terminationReason,
+      };
+    }
+
+    const isTabSwitch = dto.type === TestViolationType.TAB_SWITCH;
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await tx.testViolation.create({
+        data: {
+          attemptId: attempt.id,
+          type: dto.type,
+        },
+      });
+
+      return tx.testAttempt.update({
+        where: { id: attempt.id },
+        data: isTabSwitch
+          ? { tabSwitchCount: { increment: 1 } }
+          : { fullscreenExitCount: { increment: 1 } },
+      });
+    }, { maxWait: 15000, timeout: 30000 });
+
+    // Auto-submit when tab switches exceed maxTabSwitches (i.e. > 3)
+    if (updated.tabSwitchCount > maxTabSwitches) {
+      const reason = `Auto-submitted: Exceeded maximum allowed tab switches (${maxTabSwitches})`;
+      const finalized = await this.finalizeAttempt(slug, userId, {
+        autoSubmitted: true,
+        terminationReason: reason,
+      });
+
+      return {
+        attemptId: updated.id,
+        status: TestAttemptStatus.SUBMITTED,
+        tabSwitchCount: updated.tabSwitchCount,
+        fullscreenExitCount: updated.fullscreenExitCount,
+        maxTabSwitches,
+        autoSubmitted: true,
+        terminationReason: reason,
+        finalized,
+      };
+    }
+
+    return {
+      attemptId: updated.id,
+      status: updated.status,
+      tabSwitchCount: updated.tabSwitchCount,
+      fullscreenExitCount: updated.fullscreenExitCount,
+      maxTabSwitches,
+      autoSubmitted: false,
+      terminationReason: null,
     };
   }
 
@@ -542,9 +735,11 @@ export class TestsService {
   /**
    * Finalize the entire test attempt and compute authoritative score.
    */
-  async finalizeAttempt(slug: string, userId: string) {
-    const test = await this.prisma.test.findUnique({
-      where: { slug },
+  async finalizeAttempt(slug: string, userId: string, dto?: FinalizeAttemptDto) {
+    const test = await this.prisma.test.findFirst({
+      where: {
+        OR: [{ slug }, { id: slug }],
+      },
       include: {
         questions: true,
       },
@@ -586,6 +781,10 @@ export class TestsService {
         percentage: attempt.percentage,
         passed: attempt.passed,
         submittedAt: attempt.submittedAt,
+        tabSwitchCount: attempt.tabSwitchCount,
+        fullscreenExitCount: attempt.fullscreenExitCount,
+        autoSubmitted: attempt.autoSubmitted,
+        terminationReason: attempt.terminationReason,
         answers: attempt.answers,
       };
     }
@@ -602,6 +801,8 @@ export class TestsService {
         score: totalScore,
         percentage,
         passed,
+        ...(dto?.autoSubmitted !== undefined && { autoSubmitted: dto.autoSubmitted }),
+        ...(dto?.terminationReason !== undefined && { terminationReason: dto.terminationReason }),
       },
       include: {
         answers: {
@@ -636,6 +837,10 @@ export class TestsService {
       percentage: finalized.percentage,
       passed: finalized.passed,
       submittedAt: finalized.submittedAt,
+      tabSwitchCount: finalized.tabSwitchCount,
+      fullscreenExitCount: finalized.fullscreenExitCount,
+      autoSubmitted: finalized.autoSubmitted,
+      terminationReason: finalized.terminationReason,
       answers: finalized.answers,
     };
   }
@@ -644,8 +849,10 @@ export class TestsService {
    * Get finalized result and submission breakdown for a user.
    */
   async getResult(slug: string, userId: string) {
-    const test = await this.prisma.test.findUnique({
-      where: { slug },
+    const test = await this.prisma.test.findFirst({
+      where: {
+        OR: [{ slug }, { id: slug }],
+      },
       include: {
         questions: {
           include: {
@@ -734,6 +941,8 @@ export class TestsService {
         durationMinutes: test.durationMinutes,
         passPercentage: test.passPercentage,
         totalMarks: test.totalMarks,
+        maxTabSwitches: test.maxTabSwitches ?? 3,
+        requireFullscreen: test.requireFullscreen ?? true,
       },
       status: attempt.status,
       score: attempt.score,
@@ -743,6 +952,10 @@ export class TestsService {
       startedAt: attempt.startedAt,
       submittedAt: attempt.submittedAt,
       totalMinutesSpent,
+      tabSwitchCount: attempt.tabSwitchCount ?? 0,
+      fullscreenExitCount: attempt.fullscreenExitCount ?? 0,
+      autoSubmitted: attempt.autoSubmitted ?? false,
+      terminationReason: attempt.terminationReason ?? null,
       stats: {
         totalQuestions: test.questions.length,
         correctCount,
@@ -757,6 +970,216 @@ export class TestsService {
   // ───────────────────────────────────────────────────────────────────────────
   // Admin API Methods
   // ───────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Admin: Platform-wide overview KPIs and recent activity for the Admin Console.
+   */
+  async getAdminOverview() {
+    const [
+      totalStudents,
+      activeStudents,
+      totalProblems,
+      publishedProblems,
+      draftProblems,
+      totalTests,
+      publishedTests,
+      totalSubmissions,
+      acceptedSubmissions,
+      totalAttempts,
+      completedAttempts,
+      ongoingAttempts,
+      autoSubmittedAttempts,
+      avgScoreAgg,
+      totalBatches,
+      totalTopics,
+      recentAttempts,
+      recentSubmissions,
+    ] = await Promise.all([
+      this.prisma.user.count({ where: { role: Role.STUDENT } }),
+      this.prisma.user.count({ where: { role: Role.STUDENT, isActive: true } }),
+      this.prisma.problem.count({ where: { status: { not: ContentStatus.ARCHIVED } } }),
+      this.prisma.problem.count({ where: { status: ContentStatus.PUBLISHED } }),
+      this.prisma.problem.count({ where: { status: ContentStatus.DRAFT } }),
+      this.prisma.test.count(),
+      this.prisma.test.count({ where: { status: ContentStatus.PUBLISHED } }),
+      this.prisma.submission.count(),
+      this.prisma.submission.count({ where: { verdict: SubmissionVerdict.ACCEPTED } }),
+      this.prisma.testAttempt.count(),
+      this.prisma.testAttempt.count({ where: { status: TestAttemptStatus.SUBMITTED } }),
+      this.prisma.testAttempt.count({ where: { status: TestAttemptStatus.IN_PROGRESS } }),
+      this.prisma.testAttempt.count({ where: { autoSubmitted: true } }),
+      this.prisma.testAttempt.aggregate({
+        where: { status: TestAttemptStatus.SUBMITTED },
+        _avg: { percentage: true },
+      }),
+      this.prisma.organization.count(),
+      this.prisma.topic.count(),
+      this.prisma.testAttempt.findMany({
+        take: 8,
+        orderBy: { startedAt: 'desc' },
+        include: {
+          user: { select: { id: true, name: true, email: true, username: true } },
+          test: { select: { id: true, title: true, slug: true, totalMarks: true, maxTabSwitches: true } },
+        },
+      }),
+      this.prisma.submission.findMany({
+        take: 8,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          user: { select: { id: true, name: true, email: true, username: true } },
+          problem: { select: { id: true, title: true, slug: true, difficulty: true } },
+        },
+      }),
+    ]);
+
+    return {
+      stats: {
+        totalStudents,
+        activeStudents,
+        inactiveStudents: Math.max(0, totalStudents - activeStudents),
+        totalProblems,
+        publishedProblems,
+        draftProblems,
+        totalTests,
+        publishedTests,
+        totalSubmissions,
+        acceptedSubmissions,
+        submissionPassRate:
+          totalSubmissions > 0 ? Math.round((acceptedSubmissions / totalSubmissions) * 100) : 0,
+        totalAttempts,
+        completedAttempts,
+        ongoingAttempts,
+        autoSubmittedAttempts,
+        averageAssessmentScore: Math.round(avgScoreAgg._avg.percentage ?? 0),
+        totalBatches,
+        totalTopics,
+      },
+      recentAttempts,
+      recentSubmissions,
+    };
+  }
+
+  /**
+   * Admin: List all tests (DRAFT, PUBLISHED, ARCHIVED) with question & attempt metrics.
+   */
+  async listAdminTests() {
+    const tests = await this.prisma.test.findMany({
+      include: {
+        author: { select: { id: true, name: true, email: true } },
+        questions: {
+          include: {
+            problem: {
+              select: {
+                id: true,
+                slug: true,
+                title: true,
+                difficulty: true,
+                status: true,
+              },
+            },
+          },
+          orderBy: { orderIndex: 'asc' },
+        },
+        attempts: {
+          select: {
+            id: true,
+            status: true,
+            score: true,
+            percentage: true,
+            passed: true,
+            tabSwitchCount: true,
+            autoSubmitted: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return tests.map((t) => {
+      const completed = t.attempts.filter((a) => a.status === TestAttemptStatus.SUBMITTED);
+      const passedCount = completed.filter((a) => a.passed).length;
+      return {
+        ...t,
+        totalQuestions: t.questions.length,
+        totalAttempts: t.attempts.length,
+        completedAttempts: completed.length,
+        autoSubmittedCount: t.attempts.filter((a) => a.autoSubmitted).length,
+        passRate: completed.length > 0 ? Math.round((passedCount / completed.length) * 100) : 0,
+        averageScore:
+          completed.length > 0
+            ? Math.round(completed.reduce((acc, a) => acc + a.score, 0) / completed.length)
+            : 0,
+      };
+    });
+  }
+
+  /**
+   * Resolves either `dto.questions` or `dto.problemSlugs` into ordered problem assignments.
+   */
+  private async resolveQuestionAssignments(
+    dto: { questions?: TestQuestionItemDto[]; problemSlugs?: string[]; totalMarks?: number },
+    fallbackTotalMarks: number,
+  ): Promise<Array<{ problemId: string; orderIndex: number; marks: number }>> {
+    if (dto.questions && dto.questions.length > 0) {
+      const keys = dto.questions.map((q) => q.problemIdOrSlug.trim());
+      const problems = await this.prisma.problem.findMany({
+        where: { OR: [{ id: { in: keys } }, { slug: { in: keys } }] },
+        select: { id: true, slug: true },
+      });
+      const lookup = new Map<string, string>();
+      problems.forEach((p) => {
+        lookup.set(p.id, p.id);
+        lookup.set(p.slug, p.id);
+      });
+
+      const resolved: Array<{ problemId: string; orderIndex: number; marks: number }> = [];
+      const seenProblemIds = new Set<string>();
+      dto.questions.forEach((item, idx) => {
+        const pid = lookup.get(item.problemIdOrSlug.trim());
+        if (pid && !seenProblemIds.has(pid)) {
+          seenProblemIds.add(pid);
+          resolved.push({
+            problemId: pid,
+            orderIndex: resolved.length + 1,
+            marks: item.marks ?? 20,
+          });
+        }
+      });
+      return resolved;
+    }
+
+    if (dto.problemSlugs && dto.problemSlugs.length > 0) {
+      const cleanKeys = dto.problemSlugs.map((s) => s.trim());
+      const problems = await this.prisma.problem.findMany({
+        where: { OR: [{ slug: { in: cleanKeys } }, { id: { in: cleanKeys } }] },
+        select: { id: true, slug: true },
+      });
+      const lookup = new Map<string, string>();
+      problems.forEach((p) => {
+        lookup.set(p.id, p.id);
+        lookup.set(p.slug, p.id);
+      });
+
+      const orderedIds: string[] = [];
+      const seen = new Set<string>();
+      cleanKeys.forEach((k) => {
+        const pid = lookup.get(k);
+        if (pid && !seen.has(pid)) {
+          seen.add(pid);
+          orderedIds.push(pid);
+        }
+      });
+
+      const marksEach = Math.max(1, Math.floor(fallbackTotalMarks / Math.max(1, orderedIds.length)));
+      return orderedIds.map((problemId, i) => ({
+        problemId,
+        orderIndex: i + 1,
+        marks: marksEach,
+      }));
+    }
+
+    return [];
+  }
 
   /**
    * Admin Creates a Weekly Test with Question Assignments.
@@ -775,82 +1198,193 @@ export class TestsService {
       throw new ConflictException(`Test with slug "${slug}" already exists`);
     }
 
-    const test = await this.prisma.test.create({
-      data: {
-        slug,
-        title: dto.title,
-        description: dto.description,
-        weekNumber: dto.weekNumber,
-        instructions: dto.instructions,
-        durationMinutes: dto.durationMinutes ?? 90,
-        passPercentage: dto.passPercentage ?? 60,
-        totalMarks: dto.totalMarks ?? 100,
-        status: dto.status ?? ContentStatus.DRAFT,
-        startTime: dto.startTime ? new Date(dto.startTime) : null,
-        endTime: dto.endTime ? new Date(dto.endTime) : null,
-        authorId: adminId,
-      },
-    });
+    const assignments = await this.resolveQuestionAssignments(dto, dto.totalMarks ?? 100);
+    const computedMarks =
+      dto.totalMarks ??
+      (assignments.length > 0 ? assignments.reduce((s, a) => s + a.marks, 0) : 100);
 
-    if (dto.problemSlugs && dto.problemSlugs.length > 0) {
-      const problems = await this.prisma.problem.findMany({
-        where: { slug: { in: dto.problemSlugs } },
+    const test = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.test.create({
+        data: {
+          slug,
+          title: dto.title.trim(),
+          description: dto.description,
+          weekNumber: dto.weekNumber,
+          instructions: dto.instructions,
+          durationMinutes: dto.durationMinutes ?? 90,
+          passPercentage: dto.passPercentage ?? 60,
+          totalMarks: computedMarks,
+          status: dto.status ?? ContentStatus.DRAFT,
+          startTime: dto.startTime ? new Date(dto.startTime) : null,
+          endTime: dto.endTime ? new Date(dto.endTime) : null,
+          maxTabSwitches: dto.maxTabSwitches ?? 3,
+          requireFullscreen: dto.requireFullscreen ?? true,
+          disableCopyPaste: dto.disableCopyPaste ?? true,
+          authorId: adminId,
+        },
       });
 
-      const marksPerQuestion = Math.max(1, Math.floor(test.totalMarks / problems.length));
-
-      for (let i = 0; i < problems.length; i++) {
-        const prob = problems[i]!;
-        await this.prisma.testQuestionAssignment.create({
+      for (const item of assignments) {
+        await tx.testQuestionAssignment.create({
           data: {
-            testId: test.id,
-            problemId: prob.id,
-            orderIndex: i + 1,
-            marks: marksPerQuestion,
+            testId: created.id,
+            problemId: item.problemId,
+            orderIndex: item.orderIndex,
+            marks: item.marks,
           },
         });
       }
-    }
+
+      return created;
+    }, { maxWait: 15000, timeout: 30000 });
 
     return this.getAdminTestById(test.id);
   }
 
   /**
-   * Admin Updates a Test.
+   * Admin Updates a Test (metadata, proctoring rules, schedule, and ordered question format).
    */
   async updateTest(testId: string, dto: UpdateTestDto) {
     const test = await this.prisma.test.findUnique({
       where: { id: testId },
-      include: { attempts: true },
     });
 
     if (!test) {
       throw new NotFoundException(`Test with ID "${testId}" not found`);
     }
 
-    if (test.attempts.length > 0 && dto.problemSlugs) {
-      throw new BadRequestException(
-        'Cannot modify question assignments for a test that students have already started.',
-      );
-    }
+    const hasQuestionUpdate = dto.questions !== undefined || dto.problemSlugs !== undefined;
+    const assignments = hasQuestionUpdate
+      ? await this.resolveQuestionAssignments(dto, dto.totalMarks ?? test.totalMarks)
+      : [];
 
-    const updated = await this.prisma.test.update({
+    const computedMarks =
+      dto.totalMarks ??
+      (hasQuestionUpdate && assignments.length > 0
+        ? assignments.reduce((s, a) => s + a.marks, 0)
+        : undefined);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.test.update({
+        where: { id: testId },
+        data: {
+          ...(dto.title !== undefined && { title: dto.title.trim() }),
+          ...(dto.slug !== undefined && { slug: dto.slug.trim() }),
+          ...(dto.description !== undefined && { description: dto.description }),
+          ...(dto.weekNumber !== undefined && { weekNumber: dto.weekNumber }),
+          ...(dto.instructions !== undefined && { instructions: dto.instructions }),
+          ...(dto.durationMinutes !== undefined && { durationMinutes: dto.durationMinutes }),
+          ...(dto.passPercentage !== undefined && { passPercentage: dto.passPercentage }),
+          ...(computedMarks !== undefined && { totalMarks: computedMarks }),
+          ...(dto.status !== undefined && { status: dto.status }),
+          ...(dto.startTime !== undefined && {
+            startTime: dto.startTime ? new Date(dto.startTime) : null,
+          }),
+          ...(dto.endTime !== undefined && {
+            endTime: dto.endTime ? new Date(dto.endTime) : null,
+          }),
+          ...(dto.maxTabSwitches !== undefined && { maxTabSwitches: dto.maxTabSwitches }),
+          ...(dto.requireFullscreen !== undefined && { requireFullscreen: dto.requireFullscreen }),
+          ...(dto.disableCopyPaste !== undefined && { disableCopyPaste: dto.disableCopyPaste }),
+        },
+      });
+
+      if (hasQuestionUpdate) {
+        await tx.testQuestionAssignment.deleteMany({ where: { testId } });
+        for (const item of assignments) {
+          await tx.testQuestionAssignment.create({
+            data: {
+              testId,
+              problemId: item.problemId,
+              orderIndex: item.orderIndex,
+              marks: item.marks,
+            },
+          });
+        }
+      }
+    }, { maxWait: 15000, timeout: 30000 });
+
+    return this.getAdminTestById(testId);
+  }
+
+  /**
+   * Admin Deletes or Archives a Test.
+   * If historical student attempts exist, safely archives the test to preserve records.
+   */
+  async deleteTest(testId: string) {
+    const test = await this.prisma.test.findUnique({
       where: { id: testId },
-      data: {
-        title: dto.title ?? undefined,
-        description: dto.description ?? undefined,
-        weekNumber: dto.weekNumber ?? undefined,
-        instructions: dto.instructions ?? undefined,
-        durationMinutes: dto.durationMinutes ?? undefined,
-        passPercentage: dto.passPercentage ?? undefined,
-        totalMarks: dto.totalMarks ?? undefined,
-        status: dto.status ?? undefined,
-        startTime: dto.startTime ? new Date(dto.startTime) : undefined,
-        endTime: dto.endTime ? new Date(dto.endTime) : undefined,
+      include: { _count: { select: { attempts: true } } },
+    });
+    if (!test) {
+      throw new NotFoundException(`Test with ID "${testId}" not found`);
+    }
+    if (test._count.attempts > 0) {
+      await this.prisma.test.update({
+        where: { id: testId },
+        data: { status: ContentStatus.ARCHIVED },
+      });
+      return {
+        archived: true,
+        message: `Test "${test.title}" has ${test._count.attempts} student attempt(s) and was safely archived to preserve historical records.`,
+      };
+    }
+    await this.prisma.test.delete({ where: { id: testId } });
+    return { archived: false, message: `Test "${test.title}" deleted successfully` };
+  }
+
+  /**
+   * Admin Duplicates an Existing Test (creates a DRAFT copy with identical question assignments & proctoring).
+   */
+  async duplicateTest(adminId: string, testId: string) {
+    const source = await this.prisma.test.findUnique({
+      where: { id: testId },
+      include: {
+        questions: { orderBy: { orderIndex: 'asc' } },
       },
     });
+    if (!source) {
+      throw new NotFoundException(`Test with ID "${testId}" not found`);
+    }
 
-    return this.getAdminTestById(updated.id);
+    const suffix = Math.random().toString(36).slice(2, 6);
+    const newSlug = `${source.slug}-copy-${suffix}`;
+    const newTitle = `${source.title} (Copy)`;
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      const copy = await tx.test.create({
+        data: {
+          slug: newSlug,
+          title: newTitle,
+          description: source.description,
+          weekNumber: source.weekNumber,
+          instructions: source.instructions,
+          durationMinutes: source.durationMinutes,
+          passPercentage: source.passPercentage,
+          totalMarks: source.totalMarks,
+          status: ContentStatus.DRAFT,
+          maxTabSwitches: source.maxTabSwitches,
+          requireFullscreen: source.requireFullscreen,
+          disableCopyPaste: source.disableCopyPaste,
+          authorId: adminId,
+        },
+      });
+
+      for (const q of source.questions) {
+        await tx.testQuestionAssignment.create({
+          data: {
+            testId: copy.id,
+            problemId: q.problemId,
+            orderIndex: q.orderIndex,
+            marks: q.marks,
+          },
+        });
+      }
+
+      return copy;
+    }, { maxWait: 15000, timeout: 30000 });
+
+    return this.getAdminTestById(created.id);
   }
 
   /**
@@ -870,6 +1404,7 @@ export class TestsService {
                 title: true,
                 difficulty: true,
                 executionMode: true,
+                status: true,
               },
             },
           },
@@ -881,6 +1416,9 @@ export class TestsService {
             status: true,
             score: true,
             passed: true,
+            tabSwitchCount: true,
+            fullscreenExitCount: true,
+            autoSubmitted: true,
           },
         },
       },
@@ -894,6 +1432,7 @@ export class TestsService {
       ...test,
       totalAttempts: test.attempts.length,
       completedAttempts: test.attempts.filter((a) => a.status === TestAttemptStatus.SUBMITTED).length,
+      autoSubmittedCount: test.attempts.filter((a) => a.autoSubmitted).length,
       averageScore:
         test.attempts.length > 0
           ? Math.round(
@@ -904,7 +1443,7 @@ export class TestsService {
   }
 
   /**
-   * Admin view all student attempts for a test.
+   * Admin view all student attempts for a test (with proctoring logs & per-question answers).
    */
   async getTestAttempts(testId: string) {
     const attempts = await this.prisma.testAttempt.findMany({
@@ -916,10 +1455,19 @@ export class TestsService {
             name: true,
             username: true,
             email: true,
+            profile: { select: { college: true, gradYear: true } },
           },
         },
+        answers: {
+          include: {
+            problem: { select: { id: true, title: true, slug: true, difficulty: true } },
+          },
+        },
+        violations: {
+          orderBy: { occurredAt: 'asc' },
+        },
       },
-      orderBy: { score: 'desc' },
+      orderBy: [{ score: 'desc' }, { startedAt: 'desc' }],
     });
 
     return attempts.map((a) => ({
@@ -929,9 +1477,119 @@ export class TestsService {
       score: a.score,
       percentage: a.percentage,
       passed: a.passed,
+      tabSwitchCount: a.tabSwitchCount,
+      fullscreenExitCount: a.fullscreenExitCount,
+      autoSubmitted: a.autoSubmitted,
+      terminationReason: a.terminationReason,
       startedAt: a.startedAt,
+      expiresAt: a.expiresAt,
       submittedAt: a.submittedAt,
+      answers: a.answers,
+      violations: a.violations,
     }));
+  }
+
+  /**
+   * Admin resets/deletes a student attempt so the student can retake the test.
+   */
+  async deleteTestAttempt(testId: string, attemptId: string) {
+    const attempt = await this.prisma.testAttempt.findFirst({
+      where: { id: attemptId, testId },
+    });
+    if (!attempt) {
+      throw new NotFoundException('Test attempt not found');
+    }
+    await this.prisma.testAttempt.delete({ where: { id: attemptId } });
+    return { message: 'Student test attempt has been reset' };
+  }
+
+  /**
+   * Admin reassigns / unlocks an attempt (especially if accidentally auto-submitted).
+   * Resets tabSwitchCount to 0, clears autoSubmitted and terminationReason,
+   * sets status back to IN_PROGRESS, and extends expiresAt by extraMinutes (or default test duration).
+   */
+  async reassignTestAttempt(
+    testId: string,
+    attemptId: string,
+    options?: { extraMinutes?: number; preserveAnswers?: boolean },
+  ) {
+    const test = await this.prisma.test.findUnique({
+      where: { id: testId },
+      select: { id: true, durationMinutes: true, title: true },
+    });
+    if (!test) {
+      throw new NotFoundException('Test not found');
+    }
+
+    const attempt = await this.prisma.testAttempt.findFirst({
+      where: { id: attemptId, testId },
+    });
+    if (!attempt) {
+      throw new NotFoundException('Test attempt not found');
+    }
+
+    const extraMins = options?.extraMinutes && options.extraMinutes > 0 ? options.extraMinutes : test.durationMinutes;
+    const newExpiresAt = new Date(Date.now() + extraMins * 60 * 1000);
+
+    const updated = await this.prisma.testAttempt.update({
+      where: { id: attemptId },
+      data: {
+        status: TestAttemptStatus.IN_PROGRESS,
+        tabSwitchCount: 0,
+        fullscreenExitCount: 0,
+        autoSubmitted: false,
+        terminationReason: null,
+        submittedAt: null,
+        expiresAt: newExpiresAt,
+      },
+      include: {
+        user: { select: { name: true, email: true } },
+      },
+    });
+
+    // Also remove recorded violations so student starts with a clean slate
+    await this.prisma.testViolation.deleteMany({
+      where: { attemptId },
+    });
+
+    return {
+      success: true,
+      message: `Test "${test.title}" reassigned for ${updated.user.name || updated.user.email}. Proctoring strikes reset, status set to In Progress with ${extraMins} mins.`,
+      attempt: updated,
+    };
+  }
+
+  /**
+   * Reset attempt for current trainer or staff user so they can test-run again.
+   */
+  async resetSelfAttempt(slug: string, userId: string) {
+    const test = await this.prisma.test.findFirst({
+      where: { OR: [{ slug }, { id: slug }] },
+      select: { id: true, title: true },
+    });
+
+    if (!test) {
+      throw new NotFoundException(`Test "${slug}" not found`);
+    }
+
+    const attempt = await this.prisma.testAttempt.findUnique({
+      where: {
+        testId_userId: {
+          testId: test.id,
+          userId,
+        },
+      },
+    });
+
+    if (!attempt) {
+      return { success: true, message: 'No attempt found to reset' };
+    }
+
+    await this.prisma.testAnswer.deleteMany({ where: { attemptId: attempt.id } });
+    await this.prisma.testViolation.deleteMany({ where: { attemptId: attempt.id } });
+    await this.prisma.testAttempt.delete({ where: { id: attempt.id } });
+
+    return { success: true, message: `Attempt reset for "${test.title}". You can now start a fresh test run.` };
   }
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -939,8 +1597,10 @@ export class TestsService {
   // ───────────────────────────────────────────────────────────────────────────
 
   private async getValidActiveAttempt(slug: string, userId: string) {
-    const test = await this.prisma.test.findUnique({
-      where: { slug },
+    const test = await this.prisma.test.findFirst({
+      where: {
+        OR: [{ slug }, { id: slug }],
+      },
       select: { id: true, durationMinutes: true },
     });
 

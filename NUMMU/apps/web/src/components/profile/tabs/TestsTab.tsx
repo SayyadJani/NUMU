@@ -94,37 +94,37 @@ export function TestsTab({ tests, rating, stats }: TestsTabProps) {
   return (
     <div className="space-y-5">
       {/* ══ Rating & Tests Conducted Banner (Following dashboard/tests UI Exactly) ══ */}
-      <section className="relative bg-white rounded-2xl border border-slate-200/80 shadow-[0_1px_2px_rgba(15,23,42,0.04)] p-4 sm:p-5 flex flex-wrap xl:flex-nowrap items-center gap-4">
+      <section className="relative bg-white dark:bg-[#0b2b1e] rounded-2xl border border-slate-200/80 dark:border-emerald-900/40 shadow-[0_1px_2px_rgba(15,23,42,0.04)] p-4 sm:p-5 flex flex-wrap xl:flex-nowrap items-center gap-4 transition-colors">
         {/* Current rating & tier */}
         <div className="flex items-center gap-3.5 pr-2">
           <RankShield />
           <div>
-            <div className="text-[11px] font-medium text-slate-500">Current Rating</div>
-            <div className="text-[26px] font-extrabold text-slate-900 leading-none my-1">
+            <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Current Rating</div>
+            <div className="text-[26px] font-extrabold text-slate-900 dark:text-white leading-none my-1">
               {rating.toLocaleString()}
             </div>
-            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-100/80 px-2 py-0.5 rounded-md">
-              <Crown className="w-3 h-3 text-amber-600" />
+            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 dark:text-amber-300 bg-amber-100/80 dark:bg-amber-950/60 border border-transparent dark:border-amber-800/40 px-2 py-0.5 rounded-md">
+              <Crown className="w-3 h-3 text-amber-600 dark:text-amber-400" />
               {currentTier} Tier
             </span>
           </div>
         </div>
 
         {/* Progress to next tier */}
-        <div className="flex-1 min-w-[200px] max-w-[240px] border border-slate-200/80 rounded-xl px-3.5 py-3">
+        <div className="flex-1 min-w-[200px] max-w-[240px] border border-slate-200/80 dark:border-emerald-900/40 rounded-xl px-3.5 py-3 bg-slate-50/50 dark:bg-[#082218]/50">
           <div className="flex items-center justify-between text-[11px] mb-2">
-            <span className="font-bold text-slate-800">Progress to {nextTier}</span>
-            <span className="text-slate-500 font-medium font-mono">
+            <span className="font-bold text-slate-800 dark:text-slate-200">Progress to {nextTier}</span>
+            <span className="text-slate-500 dark:text-slate-400 font-medium font-mono">
               {rating.toLocaleString()} / {nextTierRating.toLocaleString()}
             </span>
           </div>
-          <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+          <div className="w-full h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
             <div
               className="h-full bg-[#0b5c39] rounded-full transition-all duration-500"
               style={{ width: `${progressPct}%` }}
             />
           </div>
-          <div className="text-[10px] text-slate-500 mt-2">
+          <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-2">
             {pointsToNext > 0 ? `${pointsToNext} points to reach ${nextTier}` : `Reached ${currentTier}!`}
           </div>
         </div>
@@ -132,41 +132,41 @@ export function TestsTab({ tests, rating, stats }: TestsTabProps) {
         {/* Metric items strip matching dashboard/tests */}
         <div className="flex-[2] grid grid-cols-2 sm:grid-cols-4 gap-2">
           <div className="flex items-start gap-2.5 px-2 py-1">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-slate-100 text-slate-600">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-slate-100 dark:bg-[#082218] text-slate-600 dark:text-slate-300">
               <Globe className="w-4 h-4" />
             </div>
             <div className="min-w-0">
-              <div className="text-[11px] text-slate-500 font-medium truncate">Global Rank</div>
-              <div className="text-[17px] font-extrabold text-slate-900 leading-tight">
-                #{stats?.globalRank ?? 2}
+              <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium truncate">Global Rank</div>
+              <div className="text-[17px] font-extrabold text-slate-900 dark:text-white leading-tight">
+                #{stats?.globalRank ?? 1}
               </div>
-              <div className="text-[10px] text-slate-500">Top 1% on NUMU</div>
+              <div className="text-[10px] text-slate-500 dark:text-slate-400">Top 1% on NUMU</div>
             </div>
           </div>
 
           <div className="flex items-start gap-2.5 px-2 py-1">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-purple-50 text-purple-600">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-300">
               <FileText className="w-4 h-4" />
             </div>
             <div className="min-w-0">
-              <div className="text-[11px] text-slate-500 font-medium truncate">Conducted</div>
-              <div className="text-[17px] font-extrabold text-slate-900 leading-tight">
+              <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium truncate">Conducted</div>
+              <div className="text-[17px] font-extrabold text-slate-900 dark:text-white leading-tight">
                 {totalConducted}
               </div>
-              <div className="text-[10px] text-slate-500">Total tests held</div>
+              <div className="text-[10px] text-slate-500 dark:text-slate-400">Total tests held</div>
             </div>
           </div>
 
           <div className="flex items-start gap-2.5 px-2 py-1">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-emerald-50 text-emerald-600">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-300">
               <CheckCircle2 className="w-4 h-4" />
             </div>
             <div className="min-w-0">
-              <div className="text-[11px] text-slate-500 font-medium truncate">Attended</div>
-              <div className="text-[17px] font-extrabold text-slate-900 leading-tight">
+              <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium truncate">Attended</div>
+              <div className="text-[17px] font-extrabold text-slate-900 dark:text-white leading-tight">
                 {attendedCount}
               </div>
-              <div className="text-[10px] text-emerald-600 font-semibold">{attendanceRate}% Attendance</div>
+              <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">{attendanceRate}% Attendance</div>
             </div>
           </div>
 

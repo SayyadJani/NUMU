@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
@@ -30,6 +30,7 @@ import {
   ShieldCheck,
   FileCode,
 } from 'lucide-react';
+import { practiceService } from '@/services';
 import {
   DEV_STATS,
   DEV_PROJECTS,
@@ -43,6 +44,7 @@ import {
   type DevProject,
   type DevModule,
   type DevMilestone,
+  type TechTrack,
   type ProjectStatus,
 } from '@/data/development-mock';
 
@@ -142,6 +144,7 @@ function CommitHeatmap() {
 export default function DevelopmentPage() {
   // State: Projects and filtering
   const [projects, setProjects] = useState<DevProject[]>(DEV_PROJECTS);
+  const [tracks, setTracks] = useState<TechTrack[]>(DEV_TRACKS);
   const [selectedFilter, setSelectedFilter] = useState<'all' | 'active' | 'review' | 'completed' | 'fullstack' | 'frontend' | 'backend'>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -162,6 +165,96 @@ export default function DevelopmentPage() {
   const [newProjectTitle, setNewProjectTitle] = useState('');
   const [newProjectType, setNewProjectType] = useState<'fullstack' | 'frontend' | 'backend'>('fullstack');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    practiceService.getDevelopmentTracks().then((backendTracks) => {
+      if (!mounted || !backendTracks || backendTracks.length === 0) return;
+
+      const mappedTracks: TechTrack[] = backendTracks.map((bt) => ({
+        id: bt.slug || bt.id,
+        label: bt.title,
+        description: bt.description || '',
+        icon: bt.icon || 'Monitor',
+        color: bt.colorTone || 'emerald',
+        masteryPct: 65,
+        modulesCompleted: 0,
+        modulesTotal: bt.modules?.length || 0,
+        currentModule: bt.modules?.[0]?.title || 'Getting Started',
+        isActive: true,
+      }));
+      setTracks(mappedTracks);
+
+      const allProjects: DevProject[] = [];
+      const allMilestones: DevMilestone[] = [];
+      const allModules: DevModule[] = [];
+
+      backendTracks.forEach((bt) => {
+        (bt.projects || []).forEach((bp: any) => {
+          allProjects.push({
+            id: bp.id,
+            title: bp.title,
+            description: bp.description,
+            type: 'fullstack',
+            status: bp.status === 'PUBLISHED' ? 'active' : 'paused',
+            stage: (bp.stage as any) || 'building',
+            sprint: `Sprint 1 of ${bp.totalSprints || 5}`,
+            progressPct: 25,
+            techStack: bp.techStack || ['React', 'Node.js', 'PostgreSQL'],
+            githubUrl: bp.starterRepoUrl || 'https://github.com/numu-org',
+            liveUrl: bp.demoUrl,
+            stars: 32,
+            lastCommit: 'Just now',
+            nextMilestone: bp.milestones?.[0]?.title || 'Sprint Deliverable',
+            reviewsPending: 1,
+            xpReward: bp.xpReward || 500,
+          });
+
+          (bp.milestones || []).forEach((bm: any) => {
+            allMilestones.push({
+              id: bm.id,
+              projectTitle: bp.title,
+              task: bm.title,
+              dueIn: `${bm.dueInDays || 3} days`,
+              priority: (bm.priority?.toLowerCase() as any) || 'medium',
+              done: bm.isCompleted || false,
+            });
+          });
+        });
+
+        (bt.modules || []).forEach((bm: any) => {
+          allModules.push({
+            id: bm.id,
+            title: bm.title,
+            track: bt.title,
+            difficulty: bm.difficulty === 'HARD' ? 'Advanced' : bm.difficulty === 'MEDIUM' ? 'Intermediate' : 'Beginner',
+            durationMin: parseInt(bm.duration) || 45,
+            completedLessons: 0,
+            totalLessons: bm.totalLessons || 8,
+            progressPct: 0,
+            tags: bm.tags || [],
+            isNew: true,
+          });
+        });
+      });
+
+      if (allProjects.length > 0) {
+        setProjects(allProjects);
+      }
+      if (allMilestones.length > 0) {
+        setMilestones(allMilestones);
+      }
+      if (allModules.length > 0) {
+        setModules(allModules);
+      }
+    }).catch((err) => {
+      console.warn('Failed to load practice development tracks from API', err);
+    });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   // Quick notification toast trigger
   const showToast = (msg: string) => {
@@ -309,7 +402,7 @@ export default function DevelopmentPage() {
             {/* ── 1. Hero Card (5 Cols) with Background Image Asset ── */}
             <div className="col-span-12 lg:col-span-5 relative rounded-2xl sm:rounded-3xl overflow-hidden shadow-sm border border-slate-200/80 group bg-slate-900 aspect-[2525/1457] flex items-center justify-center">
               <Image
-                src="/assets/dsa-hero-card.png"
+                src="/assets/cards/dsa-hero-card.png"
                 alt="Build Production SaaS. Ship like a Senior."
                 fill
                 className="object-cover block select-none pointer-events-none"
@@ -677,7 +770,7 @@ export default function DevelopmentPage() {
 
             {/* Tech Tracks Horizontal Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-              {DEV_TRACKS.map((track) => {
+              {tracks.map((track) => {
                 const IconComponent = TRACK_ICONS[track.icon] || Layers;
                 const fallbackColors = { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', bar: 'bg-blue-600' };
                 const colors = (track.color && TRACK_COLORS[track.color]) || fallbackColors;

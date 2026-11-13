@@ -325,10 +325,10 @@ export default function TestInstructionsPage() {
                       <span>Rules & Integrity</span>
                     </div>
                     <ul className="text-slate-700 text-xs space-y-1 list-disc list-inside text-left sm:text-right flex-1">
+                      <li>Assessment runs in mandatory Full-Screen proctored mode</li>
+                      <li>Switching tabs/windows more than 3 times automatically ends &amp; submits your test</li>
                       <li>Your code is automatically autosaved in the background every few seconds</li>
                       <li>Authoritative server-side timer expires precisely at the deadline</li>
-                      <li>Both sample and hidden test cases determine full question credit</li>
-                      <li>Unsubmitted code at deadline is auto-finalized and scored</li>
                     </ul>
                   </div>
                 </div>
@@ -366,9 +366,14 @@ export default function TestInstructionsPage() {
                   ) : agreed ? (
                     <Link
                       href={`/tests/${testData.slug || testId}/attempt` as any}
+                      onClick={() => {
+                        if (typeof document !== 'undefined' && !document.fullscreenElement) {
+                          document.documentElement.requestFullscreen?.().catch(() => {});
+                        }
+                      }}
                       className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-[#0b5c39] hover:bg-[#094d2f] text-white text-xs font-bold transition-all shadow-xs hover:shadow-sm"
                     >
-                      <span>{isAttemptActive ? 'Resume Test' : 'Start Test'}</span>
+                      <span>{isAttemptActive ? 'Resume Test (Full Screen)' : 'Start Test (Full Screen)'}</span>
                       <ArrowRight className="w-4 h-4" />
                     </Link>
                   ) : (

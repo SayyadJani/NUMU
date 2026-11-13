@@ -358,7 +358,7 @@ export class AuthService {
         throw new UnauthorizedException('Session has reached its maximum absolute duration. Please log in again.');
       }
 
-      // Atomic conditional rotation
+      // Atomic conditional rotation with cloud DB timeout tolerance
       const rotationSuccess = await this.prisma.$transaction(async (tx) => {
         const updateResult = await tx.refreshToken.updateMany({
           where: {
@@ -402,7 +402,7 @@ export class AuthService {
         }
 
         return true;
-      });
+      }, { maxWait: 15000, timeout: 30000 });
 
       if (rotationSuccess) {
         const accessToken = this.tokenService.generateAccessToken({

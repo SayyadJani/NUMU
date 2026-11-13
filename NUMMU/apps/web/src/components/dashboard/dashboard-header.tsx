@@ -15,26 +15,24 @@ import {
   Settings,
   LogOut,
   Flame,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { Logo } from '@/components/ui/logo';
 import { CharacterAvatar } from '@/components/ui/character-avatar';
-import { DUMMY_USER_PROFILE } from '@/data/dashboard-mock';
 import { useAuth } from '@/contexts/auth-context';
+import { useTheme } from '@/contexts/theme-context';
 import { gamificationService } from '@/services/gamification.service';
+import { notificationsService } from '@/services/notifications.service';
+import type { Notification } from '@/types/notifications';
 
 const SEARCH_ITEMS = [
-  { id: 's1', title: 'Binary Search & Rotated Arrays', category: 'DSA Topic', link: '/dashboard/dsa', icon: Compass },
-  { id: 's2', title: 'Container With Most Water', category: 'Daily Problem', link: '/tests/weekly-dsa-12/attempt', icon: Code2 },
-  { id: 's3', title: 'Campus Placement Mock Test #12', category: 'Assessment', link: '/tests/weekly-dsa-12/attempt', icon: FileText },
-  { id: 's4', title: 'NUMU Weekly Contest #43', category: 'Contest', link: '/dashboard/tests', icon: Trophy },
-  { id: 's5', title: 'Two Sum II - Input Array Is Sorted', category: 'DSA Problem', link: '/tests/weekly-dsa-12/attempt', icon: Code2 },
+  { id: 's1', title: 'Arrays & Two Pointers Curriculum', category: 'DSA Topic', link: '/dashboard/dsa?topic=arrays', icon: Compass },
+  { id: 's2', title: 'Container With Most Water', category: 'DSA Problem', link: '/dashboard/dsa/problems/container-with-most-water', icon: Code2 },
+  { id: 's3', title: 'Weekly DSA Assessment #1', category: 'Assessment', link: '/tests', icon: FileText },
+  { id: 's4', title: '3Sum', category: 'DSA Problem', link: '/dashboard/dsa/problems/3sum', icon: Code2 },
+  { id: 's5', title: 'Two Sum', category: 'DSA Problem', link: '/dashboard/dsa/problems/two-sum', icon: Code2 },
   { id: 's6', title: 'Fullstack SaaS Capstone', category: 'Project', link: '/dashboard/development', icon: FileText },
-];
-
-const NOTIFICATIONS = [
-  { id: 'n1', title: 'Weekly Contest #43 Registered', desc: 'Starts Sunday at 10:00 AM IST. Prepare your environment.', time: '10m ago', unread: true },
-  { id: 'n2', title: 'Campus Mock Test Ready', desc: '50 questions timed test available for attempt.', time: '2h ago', unread: true },
-  { id: 'n3', title: 'Streak Protected 🛡️', desc: 'Streak freeze equipped for 12-day milestone.', time: 'Yesterday', unread: false },
 ];
 
 export function DashboardHeader() {
@@ -42,15 +40,16 @@ export function DashboardHeader() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
-  const [notifs, setNotifs] = useState(NOTIFICATIONS);
-  const [streak, setStreak] = useState(DUMMY_USER_PROFILE.streak);
+  const [notifs, setNotifs] = useState<Notification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [streak, setStreak] = useState(0);
+  const [levelTitle, setLevelTitle] = useState('Level 1 Developer');
   const { user, logout } = useAuth();
+  const { isDark, toggleTheme } = useTheme();
 
   const searchRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
-
-  const unreadCount = useMemo(() => notifs.filter((n) => n.unread).length, [notifs]);
 
   const filteredSearch = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -100,7 +99,10 @@ export function DashboardHeader() {
     gamificationService
       .getSummary()
       .then((data) => {
-        if (isMounted) setStreak(data.streak.current);
+        if (isMounted) {
+          setStreak(data.streak.current);
+          setLevelTitle(`Level ${data.level.current} Developer`);
+        }
       })
       .catch(() => {});
 
@@ -109,8 +111,50 @@ export function DashboardHeader() {
     };
   }, []);
 
-  const markAllRead = () => {
-    setNotifs((prev) => prev.map((n) => ({ ...n, unread: false })));
+  const loadNotifications = React.useCallback(async () => {
+    try {
+      const [list, count] = await Promise.all([
+        notificationsService.getNotifications(),
+        notificationsService.getUnreadCount(),
+      ]);
+      setNotifs(list);
+      setUnreadCount(count);
+    } catch {
+      // Fallback gracefully
+    }
+  }, []);
+
+  useEffect(() => {
+    loadNotifications();
+    const interval = setInterval(loadNotifications, 60000);
+    return () => clearInterval(interval);
+  }, [loadNotifications]);
+
+  useEffect(() => {
+    if (isNotifOpen) {
+      loadNotifications();
+    }
+  }, [isNotifOpen, loadNotifications]);
+
+  const markAllRead = async () => {
+    try {
+      await notificationsService.markAllAsRead();
+      setNotifs((prev) => prev.map((n) => ({ ...n, isRead: true })));
+      setUnreadCount(0);
+    } catch {
+      // Fallback
+    }
+  };
+
+  const handleNotificationClick = async (n: Notification) => {
+    if (!n.isRead) {
+      await notificationsService.markAsRead(n.id).catch(() => {});
+      setNotifs((prev) =>
+        prev.map((item) => (item.id === n.id ? { ...item, isRead: true } : item))
+      );
+      setUnreadCount((prev) => Math.max(0, prev - 1));
+    }
+    setIsNotifOpen(false);
   };
 
   return (
@@ -216,6 +260,21 @@ export function DashboardHeader() {
             <span>{streak}</span>
           </div>
 
+          {/* Dark / Light Theme Toggle Button */}
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="p-2 rounded-xl text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-all cursor-pointer"
+            title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+            aria-label="Toggle Dark Mode"
+          >
+            {isDark ? (
+              <Sun className="w-4.5 h-4.5 text-amber-400" />
+            ) : (
+              <Moon className="w-4.5 h-4.5 text-slate-600" />
+            )}
+          </button>
+
           {/* Notification Bell with Popover */}
           <div ref={notifRef} className="relative">
             <button
@@ -256,26 +315,48 @@ export function DashboardHeader() {
                 </div>
 
                 <div className="py-2 space-y-1.5 max-h-72 overflow-y-auto no-scrollbar">
-                  {notifs.map((n) => (
-                    <div
-                      key={n.id}
-                      className={`p-2.5 rounded-xl border text-left transition-colors ${
-                        n.unread
-                          ? 'bg-emerald-50/40 border-emerald-200/80'
-                          : 'bg-white border-slate-100'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between text-[11px] font-semibold text-slate-900 mb-0.5">
-                        <span className="truncate">{n.title}</span>
-                        <span className="text-[10px] text-slate-400 font-normal shrink-0">
-                          {n.time}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-500 leading-tight">
-                        {n.desc}
-                      </p>
+                  {notifs.length > 0 ? (
+                    notifs.slice(0, 6).map((n) => {
+                      const content = (
+                        <div
+                          key={n.id}
+                          onClick={() => handleNotificationClick(n)}
+                          className={`p-2.5 rounded-xl border text-left transition-colors cursor-pointer ${
+                            !n.isRead
+                              ? 'bg-emerald-50/40 border-emerald-200/80 hover:bg-emerald-50/70'
+                              : 'bg-white border-slate-100 hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between text-[11px] font-semibold text-slate-900 mb-0.5">
+                            <span className="truncate">{n.title}</span>
+                            <span className="text-[10px] text-slate-400 font-normal shrink-0">
+                              {n.time}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 leading-tight">
+                            {n.description}
+                          </p>
+                        </div>
+                      );
+
+                      if (n.linkUrl) {
+                        return (
+                          <Link
+                            key={n.id}
+                            href={n.linkUrl as React.ComponentProps<typeof Link>['href']}
+                            className="block"
+                          >
+                            {content}
+                          </Link>
+                        );
+                      }
+                      return content;
+                    })
+                  ) : (
+                    <div className="py-6 text-center text-xs text-slate-400">
+                      No notifications yet
                     </div>
-                  ))}
+                  )}
                 </div>
 
                 <div className="pt-2 border-t border-slate-100 text-center">
@@ -301,7 +382,7 @@ export function DashboardHeader() {
                 <CharacterAvatar type={user?.profile?.avatarUrl || 'male'} size="sm" className="w-full h-full" />
               </div>
               <span className="hidden sm:block text-xs font-bold text-slate-800">
-                {user?.name || user?.username || DUMMY_USER_PROFILE.name}
+                {user?.name || user?.username || 'Student'}
               </span>
               <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
             </button>
@@ -311,13 +392,13 @@ export function DashboardHeader() {
               <div className="absolute right-0 top-full mt-2 w-56 bg-white border border-slate-200 rounded-2xl shadow-xl p-2 z-50 animate-in fade-in slide-in-from-top-1 duration-150">
                 <div className="p-2.5 border-b border-slate-100 text-left">
                   <div className="text-xs font-bold text-slate-900">
-                    {user?.name || user?.username || DUMMY_USER_PROFILE.name}
+                    {user?.name || user?.username || 'Student'}
                   </div>
                   <div className="text-[11px] text-slate-400 font-mono">
-                    @{user?.username || DUMMY_USER_PROFILE.username}
+                    @{user?.username || 'student'}
                   </div>
                   <div className="mt-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full inline-block">
-                    {DUMMY_USER_PROFILE.levelTitle}
+                    {levelTitle}
                   </div>
                 </div>
 
@@ -339,13 +420,40 @@ export function DashboardHeader() {
                     <span>Leaderboard &amp; Rankings</span>
                   </Link>
                   <Link
-                    href={'/settings' as React.ComponentProps<typeof Link>['href']}
+                    href={(user?.username ? `/profile/${encodeURIComponent(user.username)}` : '/profile') as React.ComponentProps<typeof Link>['href']}
                     onClick={() => setIsUserMenuOpen(false)}
                     className="flex items-center gap-2 px-3 py-2 rounded-xl text-slate-700 hover:bg-slate-50 transition-colors"
                   >
                     <Settings className="w-3.5 h-3.5 text-slate-400" />
-                    <span>Account Settings</span>
+                    <span>Profile &amp; Theme Settings</span>
                   </Link>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={isDark}
+                    onClick={toggleTheme}
+                    className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2">
+                      {isDark ? (
+                        <Moon className="w-3.5 h-3.5 text-emerald-500" />
+                      ) : (
+                        <Sun className="w-3.5 h-3.5 text-amber-500" />
+                      )}
+                      <span className="font-semibold">Dark Mode</span>
+                    </span>
+                    <span
+                      className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ${
+                        isDark ? 'bg-emerald-600' : 'bg-slate-300'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition duration-200 ${
+                          isDark ? 'translate-x-4' : 'translate-x-0'
+                        }`}
+                      />
+                    </span>
+                  </button>
                 </div>
 
                 <div className="pt-1 border-t border-slate-100">

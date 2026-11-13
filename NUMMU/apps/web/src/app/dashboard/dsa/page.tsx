@@ -1,992 +1,963 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
+import { useSearchParams } from 'next/navigation';
 import {
-  ArrowRight,
-  ChevronRight,
-  Map,
-  CheckCircle2,
-  Clock,
-  Flame,
   BookOpen,
-  ChevronLeft,
-  Bookmark,
-  BookmarkCheck,
+  Flame,
+  Calendar,
   Zap,
-  Trophy,
-  Target,
-  TrendingUp,
-  Code2,
-  Brain,
-  Award,
-  Sparkles,
+  ChevronRight,
+  Clock,
+  Bookmark,
+  ArrowRight,
+  AlertTriangle,
+  CheckCircle2,
+  Layers,
+  ShieldCheck,
 } from 'lucide-react';
 import { progressService } from '@/services/progress.service';
 import { dsaService } from '@/services/dsa.service';
-import { gamificationService } from '@/services/gamification.service';
+import { practiceService, type DailyChallengeResponse, type CuratedPracticeItem } from '@/services/practice.service';
+import { apiClient } from '@/lib/api/api-client';
+import { ENDPOINTS } from '@/lib/api/endpoints';
+import { ASSETS } from '@/lib/constants/assets';
 import type {
   ProgressOverviewDto,
   TopicProgressSummary,
   ActivitySummaryDto,
-  SolvedProblemItemDto,
   ProblemListItem,
-  Difficulty as ApiDifficulty,
+  SubmissionListItem,
 } from '@numu/types';
 
-// ─── Helpers & Types ──────────────────────────────────────────────────────────
+type NextLinkHref = React.ComponentProps<typeof Link>['href'];
 
-export type Difficulty = 'Easy' | 'Medium' | 'Hard';
-
-function normalizeDifficulty(diff?: string): Difficulty {
-  if (!diff) return 'Easy';
-  const lower = diff.toLowerCase();
-  if (lower === 'hard') return 'Hard';
-  if (lower === 'medium') return 'Medium';
-  return 'Easy';
+interface LiveAssessmentItem {
+  id: string;
+  slug: string;
+  title: string;
+  description: string | null;
+  durationMinutes: number;
+  questionsCount?: number;
+  _count?: { questions?: number };
+  myLatestAttempt?: {
+    status: string;
+    score: number;
+    percentage: number;
+    passed: boolean;
+  } | null;
 }
 
-const DIFF_STYLES: Record<Difficulty, string> = {
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function DonutRing({ solved, total }: { solved: number; total: number }) {
+  const pct = total > 0 ? Math.min(100, Math.round((solved / total) * 100)) : 0;
+  const r = 30;
+  const circ = 2 * Math.PI * r;
+  return (
+    <div className="relative w-20 h-20 flex items-center justify-center shrink-0">
+      <svg width={80} height={80} style={{ transform: 'rotate(-90deg)' }}>
+        <circle cx={40} cy={40} r={r} fill="none" stroke="var(--ring-track, #e2e8f0)" strokeWidth={7} />
+        <circle
+          cx={40}
+          cy={40}
+          r={r}
+          fill="none"
+          stroke="#16a34a"
+          strokeWidth={7}
+          strokeDasharray={`${(pct / 100) * circ} ${circ}`}
+          strokeLinecap="round"
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-base font-extrabold text-slate-900 leading-none">{solved}</span>
+        <span className="text-[9px] text-slate-400">solved</span>
+      </div>
+    </div>
+  );
+}
+
+const DIFF_CLS: Record<string, string> = {
+  EASY: 'text-emerald-700 bg-emerald-50 border-emerald-200',
+  MEDIUM: 'text-amber-700 bg-amber-50 border-amber-200',
+  HARD: 'text-red-600 bg-red-50 border-red-200',
   Easy: 'text-emerald-700 bg-emerald-50 border-emerald-200',
   Medium: 'text-amber-700 bg-amber-50 border-amber-200',
-  Hard: 'text-red-700 bg-red-50 border-red-200',
+  Hard: 'text-red-600 bg-red-50 border-red-200',
 };
 
-function DiffBadge({ difficulty }: { difficulty: Difficulty }) {
+function DiffBadge({ d }: { d: string }) {
+  const label = d.charAt(0).toUpperCase() + d.slice(1).toLowerCase();
   return (
-    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${DIFF_STYLES[difficulty]}`}>
-      {difficulty}
+    <span
+      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border shrink-0 ${
+        DIFF_CLS[d] ?? 'text-slate-600 bg-slate-100 border-slate-200'
+      }`}
+    >
+      {label}
     </span>
-  );
-}
-
-const TOPIC_METADATA: Record<string, { icon: string; color: string }> = {
-  arrays: { icon: '▦', color: 'bg-blue-50 border-blue-100 text-blue-600' },
-  strings: { icon: 'T', color: 'bg-purple-50 border-purple-100 text-purple-600' },
-  'linked-lists': { icon: '⛓', color: 'bg-pink-50 border-pink-100 text-pink-600' },
-  'stacks-queues': { icon: '⊞', color: 'bg-orange-50 border-orange-100 text-orange-600' },
-  trees: { icon: '🌲', color: 'bg-green-50 border-green-100 text-green-700' },
-  graphs: { icon: '⬡', color: 'bg-teal-50 border-teal-100 text-teal-600' },
-  'dynamic-programming': { icon: '⚡', color: 'bg-yellow-50 border-yellow-100 text-yellow-700' },
-  'two-pointers': { icon: '◈', color: 'bg-rose-50 border-rose-100 text-rose-600' },
-};
-
-function formatSolvedDate(isoString: string): string {
-  try {
-    const date = new Date(isoString);
-    const now = new Date();
-    const isToday =
-      date.getDate() === now.getDate() &&
-      date.getMonth() === now.getMonth() &&
-      date.getFullYear() === now.getFullYear();
-    if (isToday) return 'Today';
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  } catch {
-    return 'Recent';
-  }
-}
-
-// ─── Heatmap ──────────────────────────────────────────────────────────────────
-
-const LEVEL_CLASSES = [
-  'bg-slate-100',
-  'bg-emerald-100',
-  'bg-emerald-300',
-  'bg-emerald-500',
-  'bg-emerald-700',
-];
-
-interface HeatmapDay {
-  date: string;
-  count: number;
-  level: number;
-}
-
-function ConsistencyHeatmap({ days }: { days: HeatmapDay[] }) {
-  return (
-    <div className="space-y-1">
-      <div className="flex gap-1 flex-wrap">
-        {days.map((day) => (
-          <div
-            key={day.date}
-            title={`${day.date}: ${day.count} activities`}
-            className={`w-3.5 h-3.5 rounded-sm transition-all duration-200 hover:scale-125 cursor-default ${LEVEL_CLASSES[day.level] || LEVEL_CLASSES[0]}`}
-          />
-        ))}
-      </div>
-      <div className="flex items-center gap-1.5 pt-0.5">
-        <span className="text-[9px] text-slate-400">Less</span>
-        {LEVEL_CLASSES.map((cls, i) => (
-          <div key={i} className={`w-2.5 h-2.5 rounded-sm ${cls}`} />
-        ))}
-        <span className="text-[9px] text-slate-400">More</span>
-      </div>
-    </div>
-  );
-}
-
-// ─── Donut chart (SVG) for solved breakdown ───────────────────────────────────
-
-function SolvedDonut({
-  total,
-  easy,
-  medium,
-  hard,
-}: {
-  total: number;
-  easy: number;
-  medium: number;
-  hard: number;
-}) {
-  const r = 28;
-  const circ = 2 * Math.PI * r;
-  const safeTotal = total > 0 ? total : 1;
-
-  const easFrac = easy / safeTotal;
-  const medFrac = medium / safeTotal;
-  const hardFrac = hard / safeTotal;
-
-  const easyLen = total > 0 ? circ * easFrac : 0;
-  const medLen = total > 0 ? circ * medFrac : 0;
-  const hardLen = total > 0 ? circ * hardFrac : 0;
-
-  return (
-    <div className="flex items-center gap-3">
-      <div className="relative w-16 h-16 shrink-0">
-        <svg viewBox="0 0 72 72" className="w-full h-full -rotate-90">
-          {/* Background track */}
-          <circle cx="36" cy="36" r={r} fill="none" stroke="#f1f5f9" strokeWidth="8" />
-          {/* Easy */}
-          {easyLen > 0 && (
-            <circle
-              cx="36"
-              cy="36"
-              r={r}
-              fill="none"
-              stroke="#10b981"
-              strokeWidth="8"
-              strokeDasharray={`${easyLen} ${circ - easyLen}`}
-              strokeDashoffset="0"
-              strokeLinecap="butt"
-            />
-          )}
-          {/* Medium */}
-          {medLen > 0 && (
-            <circle
-              cx="36"
-              cy="36"
-              r={r}
-              fill="none"
-              stroke="#f59e0b"
-              strokeWidth="8"
-              strokeDasharray={`${medLen} ${circ - medLen}`}
-              strokeDashoffset={-easyLen}
-              strokeLinecap="butt"
-            />
-          )}
-          {/* Hard */}
-          {hardLen > 0 && (
-            <circle
-              cx="36"
-              cy="36"
-              r={r}
-              fill="none"
-              stroke="#ef4444"
-              strokeWidth="8"
-              strokeDasharray={`${hardLen} ${circ - hardLen}`}
-              strokeDashoffset={-(easyLen + medLen)}
-              strokeLinecap="butt"
-            />
-          )}
-        </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-sm font-extrabold text-slate-900 leading-none">{total}</span>
-          <span className="text-[8px] text-slate-400 leading-none mt-0.5">solved</span>
-        </div>
-      </div>
-      <div className="space-y-1">
-        <div className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block shrink-0" />
-          <span className="text-[10px] text-slate-500">Easy</span>
-          <span className="text-[10px] font-bold text-slate-900 ml-auto pl-2">{easy}</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-amber-400 inline-block shrink-0" />
-          <span className="text-[10px] text-slate-500">Medium</span>
-          <span className="text-[10px] font-bold text-slate-900 ml-auto pl-2">{medium}</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-red-500 inline-block shrink-0" />
-          <span className="text-[10px] text-slate-500">Hard</span>
-          <span className="text-[10px] font-bold text-slate-900 ml-auto pl-2">{hard}</span>
-        </div>
-      </div>
-    </div>
   );
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function DsaPage() {
+  const searchParams = useSearchParams();
   const [overview, setOverview] = useState<ProgressOverviewDto | null>(null);
-  const [topicProgress, setTopicProgress] = useState<TopicProgressSummary | null>(null);
-  const [solvedList, setSolvedList] = useState<SolvedProblemItemDto[]>([]);
+  const [topicSummary, setTopicSummary] = useState<TopicProgressSummary | null>(null);
   const [activity, setActivity] = useState<ActivitySummaryDto | null>(null);
   const [problems, setProblems] = useState<ProblemListItem[]>([]);
-  const [gamificationStreak, setGamificationStreak] = useState<number>(0);
+  const [solvedSlugs, setSolvedSlugs] = useState<Set<string>>(new Set());
+  const [recentSubmissions, setRecentSubmissions] = useState<SubmissionListItem[]>([]);
+  const [liveTests, setLiveTests] = useState<LiveAssessmentItem[]>([]);
+  const [dailyChallenge, setDailyChallenge] = useState<DailyChallengeResponse | null>(null);
+  const [curatedProblems, setCuratedProblems] = useState<CuratedPracticeItem[]>([]);
+  const [bookmarked, setBookmarked] = useState<string[]>([]);
+  const [expandedTopics, setExpandedTopics] = useState<Record<string, boolean>>({});
 
-  const [topicPage, setTopicPage] = useState(0);
-  const [bookmarked, setBookmarked] = useState<Record<string, boolean>>({});
-
-  // Load live data from backend services with parallelized batching
   useEffect(() => {
-    let mounted = true;
+    const topicParam = searchParams.get('topic');
+    if (topicParam) {
+      setExpandedTopics((prev) => ({
+        ...prev,
+        [topicParam]: true,
+      }));
+    }
+  }, [searchParams]);
+
+  const toggleTopicAccordion = (slug: string) => {
+    setExpandedTopics((prev) => ({
+      ...prev,
+      [slug]: !prev[slug],
+    }));
+  };
+
+  const focusTopicAccordion = (slug: string) => {
+    setExpandedTopics((prev) => ({
+      ...prev,
+      [slug]: true,
+    }));
+    const el = document.getElementById(`topic-row-${slug}`) ?? document.getElementById('dsa-curriculum-topics');
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+    const tzOffsetMinutes = -new Date().getTimezoneOffset();
 
     Promise.allSettled([
       progressService.getOverview(),
       progressService.getTopicProgress(),
-      progressService.getSolvedProblems({ limit: 10 }),
-      progressService.getActivity(),
-      dsaService.getProblems({ limit: 20 }),
-      gamificationService.getSummary(),
-    ]).then(([resOverview, resTopic, resSolved, resActivity, resProblems, resGamification]) => {
-      if (!mounted) return;
+      progressService.getActivity({ tzOffsetMinutes }),
+      progressService.getSolvedProblems({ limit: 100 }),
+      progressService.getSubmissionHistory({ limit: 10 }),
+      dsaService.getProblems({ limit: 50 }),
+      apiClient.get<LiveAssessmentItem[] | { items: LiveAssessmentItem[] }>(ENDPOINTS.TESTS.LIST),
+      practiceService.getDailyChallenge(),
+      practiceService.getCuratedPractice(),
+    ]).then(([ovRes, topRes, actRes, solvedRes, subRes, probRes, testRes, dailyRes, curatedRes]) => {
+      if (!isMounted) return;
 
-      if (resOverview.status === 'fulfilled' && resOverview.value) {
-        setOverview(resOverview.value);
+      if (ovRes.status === 'fulfilled') setOverview(ovRes.value);
+      if (topRes.status === 'fulfilled') setTopicSummary(topRes.value);
+      if (actRes.status === 'fulfilled') setActivity(actRes.value);
+      if (solvedRes.status === 'fulfilled') {
+        setSolvedSlugs(new Set(solvedRes.value.items.map((item) => item.slug)));
       }
-      if (resTopic.status === 'fulfilled' && resTopic.value) {
-        setTopicProgress(resTopic.value);
+      if (subRes.status === 'fulfilled') {
+        setRecentSubmissions(subRes.value.items);
       }
-      if (resSolved.status === 'fulfilled' && resSolved.value?.items) {
-        setSolvedList(resSolved.value.items);
+      if (probRes.status === 'fulfilled') {
+        setProblems(probRes.value.items);
       }
-      if (resActivity.status === 'fulfilled' && resActivity.value) {
-        setActivity(resActivity.value);
+      if (testRes.status === 'fulfilled') {
+        const list = Array.isArray(testRes.value)
+          ? testRes.value
+          : testRes.value?.items ?? [];
+        setLiveTests(list);
       }
-      if (resProblems.status === 'fulfilled' && resProblems.value?.items) {
-        setProblems(resProblems.value.items);
+      if (dailyRes.status === 'fulfilled' && dailyRes.value) {
+        setDailyChallenge(dailyRes.value);
       }
-      if (resGamification.status === 'fulfilled' && resGamification.value?.streak?.current !== undefined) {
-        setGamificationStreak(resGamification.value.streak.current);
+      if (curatedRes.status === 'fulfilled' && curatedRes.value) {
+        setCuratedProblems(curatedRes.value);
       }
     });
 
     return () => {
-      mounted = false;
+      isMounted = false;
     };
   }, []);
 
-  // Compute Solved Slugs for quick lookup
-  const solvedSlugs = useMemo(() => {
-    return new Set(solvedList.map((p) => p.slug));
-  }, [solvedList]);
+  const toggleBm = (id: string) =>
+    setBookmarked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
 
-  // Derived Metrics
-  const totalSolved = overview?.totalProblemsSolved ?? solvedList.length;
-  const totalAvailable = overview?.totalAvailable.total ?? (problems.length > 0 ? problems.length : 7);
-  const easyCount = overview?.difficulty.easy ?? 0;
-  const medCount = overview?.difficulty.medium ?? 0;
-  const hardCount = overview?.difficulty.hard ?? 0;
-  const progressPct = totalAvailable > 0 ? Math.min(100, Math.round((totalSolved / totalAvailable) * 100)) : 0;
+  // Derived real metrics
+  const solvedCount = overview?.totalProblemsSolved ?? 0;
+  const totalCount = overview?.totalAvailable.total ?? (problems.length || 0);
+  const easySolved = overview?.difficulty.easy ?? 0;
+  const medSolved = overview?.difficulty.medium ?? 0;
+  const hardSolved = overview?.difficulty.hard ?? 0;
+  const overallPct = totalCount > 0 ? Math.min(100, Math.round((solvedCount / totalCount) * 100)) : 0;
 
-  // Streak: use gamification or activity or fallback
-  const streakDays = gamificationStreak || activity?.currentStreak || 0;
-  const daysActive = activity?.activeDays || (streakDays > 0 ? streakDays : 1);
+  const currentStreak = activity?.currentStreak ?? 0;
+  const totalActiveDays = activity?.activeDays ?? 0;
+  const thisWeekCount = activity?.dailyActivity
+    ? activity.dailyActivity.slice(-7).reduce((acc, d) => acc + d.submissionCount, 0)
+    : 0;
 
-  // Active Topic for "Continue Learning"
-  const activeTopic = useMemo(() => {
-    if (!topicProgress?.topics || topicProgress.topics.length === 0) {
-      return {
-        name: 'Arrays',
-        slug: 'arrays',
-        totalProblems: 3,
-        solvedProblems: 1,
-        percentage: 33,
-      };
-    }
-    return (
-      topicProgress.topics.find((t) => t.solvedProblems < t.totalProblems && t.solvedProblems > 0) ||
-      topicProgress.topics.find((t) => t.solvedProblems < t.totalProblems) ||
-      topicProgress.topics[0]!
-    );
-  }, [topicProgress]);
+  const heatmapCells: (0 | 1 | 2 | 3)[] =
+    activity?.dailyActivity && activity.dailyActivity.length > 0
+      ? activity.dailyActivity.slice(-21).map((d) => {
+          if (d.submissionCount === 0) return 0;
+          if (d.submissionCount === 1) return 1;
+          if (d.submissionCount <= 3) return 2;
+          return 3;
+        })
+      : Array.from({ length: 21 }, () => 0 as const);
 
-  // Next problem in active topic or global
-  const nextProblem = useMemo(() => {
-    if (problems.length === 0) {
-      return {
-        slug: 'valid-parentheses',
-        title: 'Valid Parentheses',
-        difficulty: 'EASY' as ApiDifficulty,
-      };
-    }
-    const matchingUnsolved = problems.find(
+  const topicsList = topicSummary?.topics ?? [];
+  const activeTopic =
+    topicsList.find((t) => t.solvedProblems > 0 && t.solvedProblems < t.totalProblems) ??
+    topicsList.find((t) => t.totalProblems > 0 && t.solvedProblems < t.totalProblems) ??
+    topicsList[0];
+
+  const nextUnsolvedProblem =
+    problems.find(
       (p) =>
         !solvedSlugs.has(p.slug) &&
-        (p.topics?.some((t) => t.slug === activeTopic.slug) || p.primaryTopic?.slug === activeTopic.slug)
-    );
-    if (matchingUnsolved) return matchingUnsolved;
-    const anyUnsolved = problems.find((p) => !solvedSlugs.has(p.slug));
-    return anyUnsolved || problems[0]!;
-  }, [problems, solvedSlugs, activeTopic]);
+        activeTopic &&
+        p.topics.some((t) => t.slug === activeTopic.slug),
+    ) ??
+    problems.find((p) => !solvedSlugs.has(p.slug)) ??
+    problems[0];
 
-  // Featured Daily Challenge Problem (prefer a medium/easy problem)
-  const dailyChallengeProblem = useMemo(() => {
-    if (problems.length === 0) {
-      return {
-        slug: 'container-with-most-water',
-        title: 'Container With Most Water',
-        difficulty: 'MEDIUM' as ApiDifficulty,
-        topics: [{ slug: 'two-pointers', name: 'Two Pointers' }],
-      };
-    }
-    const mediumProblem = problems.find((p) => p.difficulty === 'MEDIUM') || problems[0]!;
-    return mediumProblem;
-  }, [problems]);
+  const dailyProblem = (dailyChallenge?.problem as any) ?? nextUnsolvedProblem ?? problems[0];
+  const dailyXpBonus = dailyChallenge?.xpBonus ?? (dailyProblem?.difficulty === 'MEDIUM' ? 50 : 30);
 
-  // XP for daily challenge based on Phase 6B policy
-  const dailyChallengeXp = dailyChallengeProblem.difficulty === 'HARD' ? 30 : dailyChallengeProblem.difficulty === 'MEDIUM' ? 20 : 10;
+  const attemptedSlugs = new Set(recentSubmissions.map((s) => s.problemSlug));
 
-  // Heatmap generation (21 days)
-  const heatmapDays = useMemo<HeatmapDay[]>(() => {
-    const cells: HeatmapDay[] = [];
-    const now = new Date();
-    const activityMap: Record<string, number> = {};
+  const weakTopics = [...topicsList]
+    .filter((t) => t.totalProblems > 0 && t.percentage < 100)
+    .sort((a, b) => a.percentage - b.percentage)
+    .slice(0, 4);
 
-    if (activity?.dailyActivity) {
-      for (const d of activity.dailyActivity) {
-        activityMap[d.date] = d.submissionCount || d.uniqueSolvedCount || 1;
+  const activeAssessment =
+    liveTests.find((t: any) => t.isFeaturedOnDashboard) ??
+    liveTests.find(
+      (t) => !t.myLatestAttempt || t.myLatestAttempt.status === 'IN_PROGRESS',
+    ) ?? liveTests[0];
+
+  const allExpanded =
+    topicsList.length > 0 && topicsList.every((t) => Boolean(expandedTopics[t.slug]));
+
+  const toggleExpandAll = () => {
+    if (allExpanded) {
+      setExpandedTopics({});
+    } else {
+      const next: Record<string, boolean> = {};
+      for (const t of topicsList) {
+        next[t.slug] = true;
       }
+      setExpandedTopics(next);
     }
-
-    for (let i = 20; i >= 0; i--) {
-      const d = new Date(now);
-      d.setDate(d.getDate() - i);
-      const dateStr = d.toISOString().split('T')[0]!;
-      const count = activityMap[dateStr] ?? (i === 0 && streakDays > 0 ? 2 : i === 1 && streakDays > 1 ? 1 : 0);
-      let level = 0;
-      if (count >= 5) level = 4;
-      else if (count >= 3) level = 3;
-      else if (count >= 2) level = 2;
-      else if (count >= 1) level = 1;
-
-      cells.push({
-        date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        count,
-        level,
-      });
-    }
-    return cells;
-  }, [activity, streakDays]);
-
-  const submissionsThisWeek = useMemo(() => {
-    return heatmapDays.slice(-7).reduce((acc, curr) => acc + curr.count, 0) || (streakDays > 0 ? streakDays : 1);
-  }, [heatmapDays, streakDays]);
-
-  // Weak Topics (lowest percentage)
-  const weakTopics = useMemo(() => {
-    if (!topicProgress?.topics || topicProgress.topics.length === 0) {
-      return [
-        { rank: 1, label: 'Dynamic Programming', pct: 0, barColor: 'bg-red-400' },
-        { rank: 2, label: 'Trees', pct: 0, barColor: 'bg-orange-400' },
-        { rank: 3, label: 'Stacks & Queues', pct: 0, barColor: 'bg-orange-400' },
-        { rank: 4, label: 'Two Pointers', pct: 33, barColor: 'bg-amber-400' },
-        { rank: 5, label: 'Arrays', pct: 67, barColor: 'bg-emerald-400' },
-      ];
-    }
-    const sorted = [...topicProgress.topics].sort((a, b) => a.percentage - b.percentage);
-    return sorted.slice(0, 5).map((t, idx) => {
-      let barColor = 'bg-red-400';
-      if (t.percentage >= 60) barColor = 'bg-emerald-400';
-      else if (t.percentage >= 30) barColor = 'bg-amber-400';
-      else if (t.percentage > 0) barColor = 'bg-orange-400';
-      return {
-        rank: idx + 1,
-        label: t.name,
-        pct: t.percentage,
-        barColor,
-      };
-    });
-  }, [topicProgress]);
-
-  // Today's practice problems (top 5 from catalog)
-  const practiceProblems = useMemo(() => {
-    return problems.slice(0, 5);
-  }, [problems]);
-
-  // Explore Topics pagination
-  const topicsList = useMemo(() => {
-    if (!topicProgress?.topics || topicProgress.topics.length === 0) {
-      return Object.entries(TOPIC_METADATA).map(([slug, meta]) => ({
-        slug,
-        name: slug.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-        totalProblems: 2,
-        solvedProblems: 0,
-        percentage: 0,
-        icon: meta.icon,
-        color: meta.color,
-      }));
-    }
-    return topicProgress.topics.map((t) => {
-      const meta = TOPIC_METADATA[t.slug] || {
-        icon: '⚡',
-        color: 'bg-emerald-50 border-emerald-100 text-emerald-700',
-      };
-      return {
-        ...t,
-        icon: meta.icon,
-        color: meta.color,
-      };
-    });
-  }, [topicProgress]);
-
-  const topicsPerPage = 8;
-  const totalPages = Math.ceil(topicsList.length / topicsPerPage);
-  const visibleTopics = topicsList.slice(topicPage * topicsPerPage, (topicPage + 1) * topicsPerPage);
-
-  const toggleBookmark = (id: string) => {
-    setBookmarked((prev) => ({ ...prev, [id]: !prev[id] }));
-    dsaService.toggleBookmark(id).catch(() => {});
   };
 
   return (
-    <main className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
-      {/* ══ Row 1: Hero | Stats Panel | Consistency Heatmap ══════════════ */}
-      <div className="grid grid-cols-12 gap-4">
-        {/* ─ Hero Card (Upgraded Design Asset with Interactive Buttons & Overlay Copy) ── */}
-        <div className="col-span-12 lg:col-span-5 relative rounded-2xl sm:rounded-3xl overflow-hidden shadow-sm border border-slate-200/80 group bg-slate-900 aspect-[2525/1457] flex items-center justify-center">
-          <Image
-            src="/assets/dsa-hero-card.png"
-            alt="Master DSA, one pattern at a time"
-            fill
-            className="object-cover block select-none pointer-events-none"
-            priority
-          />
-
-          {/* Text Copy & Re-styled Interactive Buttons */}
-          <div className="absolute inset-0 p-5 sm:p-6 lg:p-7 flex flex-col justify-between z-10 w-[58%] sm:w-[55%]">
-            <div className="space-y-1.5 sm:space-y-2">
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-emerald-300 text-[10px] sm:text-xs font-semibold tracking-wide w-fit shadow-xs">
-                <Sparkles className="w-3 h-3 text-emerald-400" />
-                <span>Pattern-Based DSA</span>
-              </div>
-
-              <h2 className="text-sm sm:text-lg md:text-xl lg:text-2xl font-black text-white leading-tight tracking-tight drop-shadow-sm">
-                Master DSA, <br className="hidden sm:inline" />
-                <span className="bg-gradient-to-r from-emerald-300 via-teal-200 to-emerald-400 bg-clip-text text-transparent">
-                  One Pattern
-                </span>{' '}
-                at a Time
+    <div className="p-5 space-y-5">
+      {/* ══ ROW 1: Hero | Stats 2x2 | Consistency ════════════════════════ */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
+        {/* Hero Card */}
+        <div
+          className="col-span-1 lg:col-span-5 relative rounded-2xl overflow-hidden p-6 flex flex-col justify-between min-h-[220px] bg-[#140e38] shadow-sm border border-slate-200/80"
+          style={{
+            backgroundImage: `url(${ASSETS.hero.dsaHeroCard.src})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}
+        >
+          <div className="relative z-10 flex flex-col h-full justify-between max-w-[65%]">
+            <div>
+              <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-emerald-300 bg-white/10 backdrop-blur-md border border-white/20 px-2.5 py-1 rounded-full mb-3">
+                ✨ Shared 8-Topic DSA Curriculum
+              </span>
+              <h2 className="text-xl font-extrabold text-white leading-snug">
+                Master DSA, <span className="text-emerald-400">One Topic</span> at a Time
               </h2>
-
-              <p className="text-[10px] sm:text-xs text-purple-100/80 leading-relaxed font-medium line-clamp-2 drop-shadow-xs max-w-[300px]">
-                Curated problems, verified judge execution, and habit-building gamification.
+              <p className="text-xs text-slate-200 mt-2 leading-relaxed line-clamp-2">
+                {topicsList.length} structured topics, {totalCount} curated coding problems, live Judge0 grading, and per-student progress tracking.
               </p>
             </div>
 
-            {/* Restyled Action Buttons */}
-            <div className="flex items-center gap-2 sm:gap-2.5 pt-1">
+            <div className="flex items-center gap-2.5 mt-4">
               <Link
-                href="/dashboard/dsa/problems"
-                className="group/btn flex items-center gap-1.5 px-3.5 py-2 sm:px-4 sm:py-2.5 bg-gradient-to-r from-emerald-400 via-emerald-500 to-teal-400 hover:from-emerald-300 hover:via-emerald-400 hover:to-teal-300 text-slate-950 text-[11px] sm:text-xs font-black rounded-xl transition-all shadow-md shadow-emerald-950/40 hover:shadow-lg hover:shadow-emerald-500/25 hover:-translate-y-0.5 active:translate-y-0 active:scale-95"
+                href={
+                  (nextUnsolvedProblem
+                    ? `/dashboard/dsa/problems/${nextUnsolvedProblem.slug}`
+                    : '/dashboard/dsa/problems/two-sum') as NextLinkHref
+                }
+                className="flex items-center gap-1.5 px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-bold rounded-xl transition-all shadow-lg shadow-emerald-900/40"
               >
-                <span>Start Practicing</span>
-                <ArrowRight className="w-3 h-3 sm:w-3.5 sm:h-3.5 group-hover/btn:translate-x-0.5 transition-transform" />
+                Start Practicing <ArrowRight className="w-3.5 h-3.5" />
               </Link>
               <Link
                 href="/dashboard/dsa/patterns"
-                className="flex items-center gap-1.5 px-3.5 py-2 sm:px-4 sm:py-2.5 bg-white/15 hover:bg-white/25 text-white text-[11px] sm:text-xs font-bold rounded-xl transition-all shadow-xs border border-white/25 hover:border-white/40 backdrop-blur-md hover:-translate-y-0.5 active:translate-y-0 active:scale-95"
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-white/10 hover:bg-white/20 text-white text-xs font-semibold rounded-xl border border-white/20 transition-all backdrop-blur-md"
               >
-                <Map className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-300" />
-                <span>View Roadmap</span>
+                View Roadmap
               </Link>
             </div>
           </div>
         </div>
 
-        {/* ─ Stats Panel ───────────────────────────────────────────────── */}
-        <div className="col-span-12 lg:col-span-3 flex flex-col gap-3">
-          {/* Problems Solved Donut */}
-          <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wide">Problems Solved</span>
-              <span className="text-[10px] text-emerald-700 font-bold">
-                {totalSolved}/{totalAvailable}
+        {/* Center 2x2 Grid */}
+        <div className="col-span-1 lg:col-span-3 grid grid-cols-2 grid-rows-2 gap-3">
+          <div className="col-span-2 bg-white rounded-2xl border border-slate-200/80 p-4 flex flex-col justify-between shadow-xs">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Problems Solved
+              </span>
+              <span className="text-xs font-extrabold text-emerald-700">
+                {solvedCount}/{totalCount}
               </span>
             </div>
-            <SolvedDonut total={totalSolved} easy={easyCount} medium={medCount} hard={hardCount} />
-            <div className="mt-3 w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-gradient-to-r from-emerald-500 to-emerald-600 rounded-full transition-all duration-1000"
-                style={{ width: `${progressPct}%` }}
-              />
+            <div className="flex items-center gap-3 my-1">
+              <DonutRing solved={solvedCount} total={totalCount} />
+              <div className="space-y-1 flex-1 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-slate-500">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                    Easy
+                  </span>
+                  <span className="font-bold text-slate-800">{easySolved}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-slate-500">
+                    <span className="w-2 h-2 rounded-full bg-amber-400" />
+                    Medium
+                  </span>
+                  <span className="font-bold text-slate-800">{medSolved}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-slate-500">
+                    <span className="w-2 h-2 rounded-full bg-red-500" />
+                    Hard
+                  </span>
+                  <span className="font-bold text-slate-800">{hardSolved}</span>
+                </div>
+              </div>
             </div>
-            <div className="flex justify-between mt-1">
-              <span className="text-[9px] text-slate-400">Overall Progress</span>
-              <span className="text-[9px] font-bold text-slate-700">{progressPct}%</span>
+            <div>
+              <div className="flex justify-between text-[10px] text-slate-400 mb-1">
+                <span>Curriculum Progress</span>
+                <span className="font-bold text-slate-600">{overallPct}%</span>
+              </div>
+              <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-emerald-600 rounded-full transition-all"
+                  style={{ width: `${overallPct}%` }}
+                />
+              </div>
             </div>
           </div>
 
-          {/* Current Topic + Streak */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-white rounded-xl border border-slate-200/80 p-3.5 shadow-sm flex flex-col gap-1.5">
-              <div className="w-7 h-7 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center">
-                <BookOpen className="w-3.5 h-3.5 text-emerald-600" />
-              </div>
-              <div className="text-[9px] text-slate-400">Current Topic</div>
-              <div className="text-xs font-bold text-slate-900 truncate">{activeTopic.name}</div>
-              <Link
-                href={`/dashboard/dsa/problems?topic=${activeTopic.slug}`}
-                className="text-[9px] font-semibold text-emerald-700 flex items-center gap-0.5 hover:text-emerald-800 mt-auto"
-              >
-                Continue <ArrowRight className="w-2.5 h-2.5" />
-              </Link>
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-3.5 flex flex-col justify-between shadow-xs">
+            <div className="w-7 h-7 rounded-xl bg-emerald-50 flex items-center justify-center">
+              <BookOpen className="w-3.5 h-3.5 text-emerald-700" />
             </div>
+            <div>
+              <div className="text-[10px] text-slate-400">Current Topic</div>
+              <div className="text-xs font-extrabold text-slate-900 leading-tight mt-0.5 truncate">
+                {activeTopic?.name ?? 'Arrays'}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => activeTopic && focusTopicAccordion(activeTopic.slug)}
+              className="text-[10px] font-bold text-emerald-700 hover:underline flex items-center gap-0.5 cursor-pointer"
+            >
+              Continue <ArrowRight className="w-2.5 h-2.5" />
+            </button>
+          </div>
 
-            <div className="bg-white rounded-xl border border-slate-200/80 p-3.5 shadow-sm flex flex-col gap-1.5">
-              <Flame className="w-5 h-5 text-orange-500 fill-orange-400" />
-              <div className="text-[9px] text-slate-400">Streak</div>
-              <div className="text-lg font-extrabold text-slate-900 leading-tight">{streakDays}</div>
-              <div className="text-[9px] text-slate-400 -mt-1">days 🔥</div>
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-3.5 flex flex-col justify-between shadow-xs">
+            <div className="w-7 h-7 rounded-xl bg-orange-50 flex items-center justify-center">
+              <Flame className="w-3.5 h-3.5 text-orange-500" />
+            </div>
+            <div>
+              <div className="text-[10px] text-slate-400">Streak</div>
+              <div className="text-xl font-extrabold text-slate-900 leading-none">
+                {currentStreak}
+              </div>
+              <div className="text-[10px] text-slate-400 mt-0.5">days 🔥</div>
             </div>
           </div>
         </div>
 
-        {/* ─ Consistency Heatmap ───────────────────────────────────────── */}
-        <div className="col-span-12 lg:col-span-4 bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm flex flex-col gap-3.5">
+        {/* Your Consistency */}
+        <div className="col-span-1 lg:col-span-4 bg-white rounded-2xl border border-slate-200/80 p-4 flex flex-col justify-between shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-bold text-slate-800">Your Consistency</span>
-            <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-full">
-              {streakDays > 0 ? `${streakDays} Days Active 🔥` : 'Start Today!'}
+            <span className="text-xs font-bold text-slate-800">Your Consistency</span>
+            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+              {currentStreak > 0 ? '🔥 Streak Active' : 'Start Today!'}
             </span>
           </div>
 
-          <ConsistencyHeatmap days={heatmapDays} />
-
-          <div className="grid grid-cols-3 gap-2 pt-1 border-t border-slate-100">
-            {[
-              { val: streakDays, label: 'Day Streak', icon: '🔥' },
-              { val: daysActive, label: 'Days Active', icon: '📅' },
-              { val: submissionsThisWeek, label: 'This Week', icon: '⚡' },
-            ].map(({ val, label, icon }) => (
-              <div key={label} className="text-center">
-                <div className="text-base font-extrabold text-slate-900">{val}</div>
-                <div className="text-[9px] text-slate-400">
-                  {icon} {label}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-auto pt-2 border-t border-slate-100">
-            <div className="text-[11px] text-slate-500 italic leading-relaxed">
-              &ldquo;Discipline in DSA now, freedom later.&rdquo;
+          <div>
+            <div className="grid grid-cols-10 gap-1 my-2">
+              {heatmapCells.map((v, i) => (
+                <div
+                  key={i}
+                  className={`h-3 rounded-xs ${
+                    v === 0
+                      ? 'bg-slate-100'
+                      : v === 1
+                      ? 'bg-emerald-200'
+                      : v === 2
+                      ? 'bg-emerald-400'
+                      : 'bg-emerald-600'
+                  }`}
+                />
+              ))}
+            </div>
+            <div className="flex items-center gap-1 text-[9px] text-slate-400">
+              <span>Less</span>
+              {[0, 1, 2, 3].map((v) => (
+                <div
+                  key={v}
+                  className={`w-2.5 h-2.5 rounded-xs ${
+                    v === 0
+                      ? 'bg-slate-100'
+                      : v === 1
+                      ? 'bg-emerald-200'
+                      : v === 2
+                      ? 'bg-emerald-400'
+                      : 'bg-emerald-600'
+                  }`}
+                />
+              ))}
+              <span>More</span>
             </div>
           </div>
+
+          <div className="grid grid-cols-3 gap-2 text-center border-t border-slate-100 pt-2">
+            <div>
+              <div className="text-sm font-extrabold text-slate-900">{currentStreak}</div>
+              <div className="text-[9px] text-slate-400">🔥 Day Streak</div>
+            </div>
+            <div>
+              <div className="text-sm font-extrabold text-slate-900">{totalActiveDays}</div>
+              <div className="text-[9px] text-slate-400">📅 Days Active</div>
+            </div>
+            <div>
+              <div className="text-sm font-extrabold text-slate-900">{thisWeekCount}</div>
+              <div className="text-[9px] text-slate-400">⚡ This Week</div>
+            </div>
+          </div>
+
+          <p className="text-[10px] text-slate-400 italic border-t border-slate-100 pt-2">
+            &ldquo;Discipline in DSA now, freedom later.&rdquo;
+          </p>
         </div>
       </div>
 
-      {/* ══ Row 2: Continue Learning | Today's Practice | Daily Challenge ═ */}
-      <div className="grid grid-cols-12 gap-4">
-        {/* ─ Continue Learning ─────────────────────────────────────────── */}
-        <div className="col-span-12 lg:col-span-4 bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm flex flex-col justify-between">
+      {/* ══ ROW 2: EXPANDABLE TOPIC ACCORDION LIST (CLICK TOPIC TO VIEW QUESTIONS) ══ */}
+      <div id="dsa-curriculum-topics" className="bg-white rounded-3xl border border-slate-200/80 p-5 sm:p-6 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-emerald-50 border border-emerald-200/80 flex items-center justify-center text-emerald-700 shrink-0">
+              <Layers className="w-5 h-5 text-emerald-600" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base sm:text-lg font-extrabold text-slate-900">
+                  DSA Topics & Curriculum Questions
+                </h2>
+                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  {solvedCount} / {totalCount} Solved ({overallPct}%)
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Click any topic below to expand and solve questions related to that topic.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={toggleExpandAll}
+            className="self-start sm:self-auto px-3.5 py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+          >
+            {allExpanded ? 'Collapse All' : 'Expand All Topics'}
+          </button>
+        </div>
+
+        {/* Vertical Accordion List of Topics */}
+        <div className="space-y-2.5">
+          {topicsList.map((topic) => {
+            const topicProblems = problems.filter((p) =>
+              p.topics.some((pt) => pt.slug === topic.slug),
+            );
+            const isExpanded = Boolean(expandedTopics[topic.slug]);
+            const isTopicComplete =
+              topic.totalProblems > 0 && topic.solvedProblems >= topic.totalProblems;
+
+            return (
+              <div
+                key={topic.id}
+                id={`topic-row-${topic.slug}`}
+                className={`rounded-2xl border transition-all overflow-hidden ${
+                  isExpanded
+                    ? 'border-emerald-300 bg-white shadow-xs'
+                    : 'border-slate-200/80 bg-slate-50/60 hover:bg-slate-100/70 hover:border-slate-300'
+                }`}
+              >
+                {/* Clickable Topic Accordion Bar */}
+                <button
+                  type="button"
+                  onClick={() => toggleTopicAccordion(topic.slug)}
+                  className="w-full px-5 py-4 flex items-center justify-between gap-4 text-left cursor-pointer group select-none"
+                >
+                  <div className="flex items-center gap-3.5 min-w-0">
+                    <ChevronRight
+                      className={`w-4 h-4 shrink-0 transition-transform duration-200 ${
+                        isExpanded
+                          ? 'rotate-90 text-emerald-600'
+                          : 'text-slate-400 group-hover:text-slate-700'
+                      }`}
+                    />
+                    <span className="text-sm sm:text-[15px] font-bold text-slate-800 group-hover:text-emerald-800 transition-colors truncate">
+                      {topic.name}
+                    </span>
+                    {isTopicComplete && (
+                      <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                        Completed ✓
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Right Side: Horizontal Progress Bar + Solved / Total Counter */}
+                  <div className="flex items-center gap-4 shrink-0">
+                    <div className="w-28 sm:w-52 h-1.5 bg-slate-200/90 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${
+                          isTopicComplete ? 'bg-emerald-600' : 'bg-emerald-500'
+                        }`}
+                        style={{ width: `${topic.percentage}%` }}
+                      />
+                    </div>
+                    <span className="text-xs sm:text-sm font-bold text-slate-600 tabular-nums min-w-[46px] text-right">
+                      {topic.solvedProblems} / {topic.totalProblems}
+                    </span>
+                  </div>
+                </button>
+
+                {/* Expanded Topic Questions Table */}
+                {isExpanded && (
+                  <div className="border-t border-slate-100 bg-white px-4 sm:px-6 py-3">
+                    {topicProblems.length === 0 ? (
+                      <div className="py-4 text-center text-xs text-slate-400">
+                        No problems published in this topic yet.
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-slate-100">
+                        {topicProblems.map((prob, idx) => {
+                          const isSolved = solvedSlugs.has(prob.slug);
+                          const isAttempted = !isSolved && attemptedSlugs.has(prob.slug);
+
+                          return (
+                            <div
+                              key={prob.id}
+                              className="py-3 flex items-center justify-between gap-3 hover:bg-slate-50/80 px-2 rounded-xl transition-colors"
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                <span className="text-xs font-semibold text-slate-400 w-5 text-right shrink-0">
+                                  {idx + 1}.
+                                </span>
+                                {isSolved ? (
+                                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                ) : isAttempted ? (
+                                  <Clock className="w-4 h-4 text-amber-500 shrink-0" />
+                                ) : (
+                                  <span className="w-4 h-4 rounded-full border-2 border-slate-300 shrink-0 inline-block" />
+                                )}
+                                <Link
+                                  href={`/dashboard/dsa/problems/${prob.slug}` as NextLinkHref}
+                                  className={`text-xs sm:text-sm font-bold truncate hover:text-emerald-700 transition-colors ${
+                                    isSolved ? 'text-emerald-950' : 'text-slate-800'
+                                  }`}
+                                >
+                                  {prob.title}
+                                </Link>
+                              </div>
+
+                              <div className="flex items-center gap-2.5 shrink-0">
+                                <DiffBadge d={prob.difficulty} />
+                                <button
+                                  type="button"
+                                  onClick={() => toggleBm(prob.id)}
+                                  className="text-slate-300 hover:text-emerald-600 transition-colors cursor-pointer"
+                                  title="Bookmark problem"
+                                >
+                                  <Bookmark
+                                    className={`w-3.5 h-3.5 ${
+                                      bookmarked.includes(prob.id)
+                                        ? 'fill-emerald-600 text-emerald-600'
+                                        : ''
+                                    }`}
+                                  />
+                                </button>
+                                <Link
+                                  href={`/dashboard/dsa/problems/${prob.slug}` as NextLinkHref}
+                                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors ${
+                                    isSolved
+                                      ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                                      : 'bg-[#0b5c39] text-white hover:bg-[#08482c]'
+                                  }`}
+                                >
+                                  {isSolved ? 'Solved ✓' : isAttempted ? 'Resume →' : 'Solve →'}
+                                </Link>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ══ ROW 3: Continue Learning | Today's Practice | Daily Challenge ═ */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
+        {/* Continue Learning */}
+        <div className="col-span-1 lg:col-span-4 bg-white rounded-2xl border border-slate-200/80 p-5 flex flex-col justify-between shadow-xs">
           <div>
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-sm font-bold text-slate-800">Continue Learning</span>
-              <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded-full">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-bold text-slate-800">Continue Learning</span>
+              <span className="text-[10px] font-bold text-blue-600 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
                 In Progress
               </span>
             </div>
 
-            <div className="flex items-start gap-3 mb-4 p-3 bg-emerald-50/50 border border-emerald-100 rounded-xl">
-              <div className="w-10 h-10 rounded-xl bg-emerald-100 border border-emerald-200 flex items-center justify-center shrink-0">
-                <BookOpen className="w-5 h-5 text-emerald-700" />
-              </div>
-              <div className="min-w-0">
-                <div className="text-sm font-bold text-slate-900 truncate">{activeTopic.name}</div>
-                <div className="text-[10px] text-slate-500 mt-0.5 leading-relaxed line-clamp-2">
-                  Next: <span className="font-medium text-slate-700">{nextProblem.title}</span>
+            <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-xl p-3.5 mb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0">
+                  <BookOpen className="w-4 h-4 text-emerald-700" />
                 </div>
-                <div className="mt-1">
-                  <DiffBadge difficulty={normalizeDifficulty(nextProblem.difficulty)} />
+                <div>
+                  <div className="text-xs font-extrabold text-slate-900">
+                    {activeTopic?.name ?? 'Arrays'}
+                  </div>
+                  <div className="text-[10px] text-slate-500">
+                    Next: {nextUnsolvedProblem?.title ?? 'Two Sum'}
+                  </div>
                 </div>
               </div>
+              {nextUnsolvedProblem && (
+                <div className="mt-2">
+                  <DiffBadge d={nextUnsolvedProblem.difficulty} />
+                </div>
+              )}
             </div>
 
-            <div className="mb-1">
-              <div className="flex justify-between text-[10px] text-slate-500 mb-1.5">
+            <div className="mb-3">
+              <div className="flex justify-between text-[10px] text-slate-500 mb-1">
                 <span>
-                  {activeTopic.solvedProblems} of {activeTopic.totalProblems} completed
+                  {activeTopic?.solvedProblems ?? 0} of {activeTopic?.totalProblems ?? 0} completed
                 </span>
-                <span className="font-semibold text-slate-700">{activeTopic.percentage}%</span>
+                <span className="font-bold text-slate-700">{activeTopic?.percentage ?? 0}%</span>
               </div>
-              <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+              <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-gradient-to-r from-emerald-500 to-emerald-600 rounded-full transition-all duration-700"
-                  style={{ width: `${activeTopic.percentage}%` }}
+                  className="h-full bg-emerald-600 rounded-full transition-all"
+                  style={{ width: `${activeTopic?.percentage ?? 0}%` }}
                 />
               </div>
             </div>
           </div>
 
           <Link
-            href={`/dashboard/dsa/problems/${nextProblem.slug}`}
-            className="mt-4 w-full flex items-center justify-center gap-1.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-all hover:shadow-sm"
+            href={
+              (nextUnsolvedProblem
+                ? `/dashboard/dsa/problems/${nextUnsolvedProblem.slug}`
+                : '/dashboard/dsa/problems/two-sum') as NextLinkHref
+            }
+            className="w-full flex items-center justify-center gap-2 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-all"
           >
             Continue Solving <ArrowRight className="w-3.5 h-3.5" />
           </Link>
         </div>
 
-        {/* ─ Today's Practice ──────────────────────────────────────────── */}
-        <div className="col-span-12 lg:col-span-4 bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-sm font-bold text-slate-800">Today&apos;s Practice</span>
-            <Link
-              href="/dashboard/dsa/problems"
-              className="text-[10px] text-emerald-700 font-semibold flex items-center gap-0.5 hover:text-emerald-800"
-            >
-              View All <ChevronRight className="w-3 h-3" />
-            </Link>
-          </div>
-          <div className="text-[10px] text-slate-400 mb-3">{practiceProblems.length} curated problems from catalog</div>
+        {/* Today's Practice */}
+        <div className="col-span-1 lg:col-span-4 bg-white rounded-2xl border border-slate-200/80 p-5 flex flex-col justify-between shadow-xs">
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <div>
+                <span className="text-xs font-bold text-slate-800">Today&apos;s Practice</span>
+                <div className="text-[10px] text-slate-400">
+                  {problems.length} curated problems from database
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={toggleExpandAll}
+                className="text-[10px] font-bold text-emerald-700 hover:underline flex items-center gap-0.5 cursor-pointer"
+              >
+                View All <ChevronRight className="w-3 h-3" />
+              </button>
+            </div>
 
-          <div className="space-y-1.5">
-            {practiceProblems.map((p, i) => {
-              const isSolved = solvedSlugs.has(p.slug);
-              return (
-                <div
-                  key={p.id}
-                  className="flex items-center justify-between py-1.5 px-2 hover:bg-slate-50 rounded-lg -mx-1 cursor-pointer group transition-colors"
-                >
-                  <Link href={`/dashboard/dsa/problems/${p.slug}`} className="flex items-center gap-2.5 min-w-0 flex-1">
-                    {isSolved ? (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                    ) : (
-                      <span className="w-4 h-4 rounded-full bg-slate-100 text-slate-500 text-[9px] font-bold flex items-center justify-center shrink-0">
-                        {i + 1}
-                      </span>
-                    )}
+            <div className="divide-y divide-slate-100 mt-2">
+              {(curatedProblems.length > 0 ? curatedProblems.map((cp) => cp.problem) : problems.slice(0, 5)).map((p, i) => {
+                const isSolved = solvedSlugs.has(p.slug);
+                return (
+                  <div key={p.id} className="flex items-center gap-2 py-2">
                     <span
-                      className={`text-xs font-medium truncate group-hover:text-emerald-700 ${
-                        isSolved ? 'text-slate-400 line-through' : 'text-slate-700'
+                      className={`text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center shrink-0 ${
+                        isSolved
+                          ? 'bg-emerald-500 text-white'
+                          : 'bg-slate-100 text-slate-500'
                       }`}
                     >
-                      {p.title}
+                      {isSolved ? '✓' : i + 1}
                     </span>
-                  </Link>
-                  <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                    <DiffBadge difficulty={normalizeDifficulty(p.difficulty)} />
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleBookmark(p.id);
-                      }}
-                      className="text-slate-300 hover:text-amber-400 transition-colors"
+                    <Link
+                      href={`/dashboard/dsa/problems/${p.slug}` as NextLinkHref}
+                      className="text-xs font-medium text-slate-800 flex-1 truncate hover:text-emerald-700 transition-colors"
                     >
-                      {bookmarked[p.id] ? (
-                        <BookmarkCheck className="w-3.5 h-3.5 text-amber-400" />
-                      ) : (
-                        <Bookmark className="w-3.5 h-3.5" />
-                      )}
+                      {p.title}
+                    </Link>
+                    <DiffBadge d={p.difficulty as any} />
+                    <button
+                      onClick={() => toggleBm(p.id)}
+                      className="text-slate-300 hover:text-emerald-600 transition-colors shrink-0"
+                    >
+                      <Bookmark
+                        className={`w-3.5 h-3.5 ${
+                          bookmarked.includes(p.id) ? 'fill-emerald-600 text-emerald-600' : ''
+                        }`}
+                      />
                     </button>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         </div>
 
-        {/* ─ Daily Challenge ───────────────────────────────────────────── */}
-        <div className="col-span-12 lg:col-span-4 bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm flex flex-col justify-between">
+        {/* Daily Challenge */}
+        <div className="col-span-1 lg:col-span-4 bg-white rounded-2xl border border-slate-200/80 p-5 flex flex-col justify-between shadow-xs">
           <div>
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-sm font-bold text-slate-800">Daily Challenge</span>
-              <div className="flex items-center gap-1 text-[10px] text-orange-600 font-semibold bg-orange-50 border border-orange-100 px-2 py-0.5 rounded-full">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-bold text-slate-800">Daily Challenge</span>
+              <span className="flex items-center gap-1 text-[10px] font-semibold text-orange-600 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full">
                 <Clock className="w-2.5 h-2.5" /> Active Today
-              </div>
+              </span>
             </div>
 
-            <div className="space-y-3">
-              <div>
-                <div className="text-sm font-extrabold text-slate-900 mb-2 leading-tight">
-                  {dailyChallengeProblem.title}
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  <DiffBadge difficulty={normalizeDifficulty(dailyChallengeProblem.difficulty)} />
-                  {dailyChallengeProblem.topics?.map((t) => (
-                    <span
-                      key={t.slug}
-                      className="text-[9px] font-semibold px-2 py-0.5 rounded-full border text-slate-600 bg-slate-100 border-slate-200"
-                    >
-                      {t.name}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              {/* XP reward */}
-              <div className="flex items-center gap-2 p-2.5 bg-amber-50 border border-amber-100 rounded-lg">
-                <Zap className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                <span className="text-[10px] font-semibold text-amber-800">
-                  Earn +{dailyChallengeXp} XP on accepted submission
+            <div className="text-sm font-extrabold text-slate-900 mb-2">
+              {dailyProblem?.title ?? 'Two Sum'}
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap mb-3">
+              {dailyProblem && <DiffBadge d={dailyProblem.difficulty} />}
+              {dailyProblem?.topics?.map((t: any) => (
+                <span
+                  key={t.slug || t.topic?.slug}
+                  className="text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full"
+                >
+                  {t.name || t.topic?.name}
                 </span>
-              </div>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-200/80 rounded-xl px-3 py-2 mb-3">
+              <Zap className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+              <span className="text-[10px] font-semibold text-amber-800">
+                Earn +{dailyXpBonus} XP on accepted Judge0 submission
+              </span>
             </div>
           </div>
 
           <div>
             <Link
-              href={`/dashboard/dsa/problems/${dailyChallengeProblem.slug}`}
-              className="mt-4 w-full flex items-center justify-center gap-1.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-all hover:shadow-sm"
+              href={
+                (dailyProblem
+                  ? `/dashboard/dsa/problems/${dailyProblem.slug}`
+                  : '/dashboard/dsa/problems/two-sum') as NextLinkHref
+              }
+              className="w-full flex items-center justify-center gap-2 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-all"
             >
               Solve Now <ArrowRight className="w-3.5 h-3.5" />
             </Link>
-
-            <div className="mt-3 flex items-center gap-1.5 text-[10px] text-slate-400">
-              <Trophy className="w-3 h-3 text-amber-400" />
-              <span>Complete daily challenges to sustain your streak!</span>
+            <div className="text-center text-[10px] text-slate-400 mt-2">
+              🏆 Complete daily challenges to sustain your streak!
             </div>
           </div>
         </div>
       </div>
 
-      {/* ══ Row 3: Weak Topics | Upcoming Test | Recent Problems ═════════ */}
-      <div className="grid grid-cols-12 gap-4">
-        {/* ─ Weak Topics ───────────────────────────────────────────────── */}
-        <div className="col-span-12 lg:col-span-4 bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm">
-          <div className="flex items-center justify-between mb-1">
-            <div className="flex items-center gap-2">
-              <Target className="w-3.5 h-3.5 text-rose-500" />
-              <span className="text-sm font-bold text-slate-800">Focus Topics</span>
-            </div>
-            <Link
-              href="/dashboard/dsa/patterns"
-              className="text-[10px] text-emerald-700 font-semibold flex items-center gap-0.5 hover:text-emerald-800"
-            >
-              View All <ChevronRight className="w-3 h-3" />
-            </Link>
+      {/* ══ ROW 4: Recently Practiced | Weak Areas | Live Proctored Assessment ══════ */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        {/* Recently Practiced */}
+        <div className="col-span-1 lg:col-span-4 bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-bold text-slate-800">Recently Practiced</span>
+            <span className="text-[10px] font-bold text-emerald-700">
+              {recentSubmissions.length} Recent Runs
+            </span>
           </div>
-          <div className="text-[10px] text-slate-400 mb-4">Focus here to level up your mastery faster.</div>
-
-          <div className="space-y-3.5">
-            {weakTopics.map((t) => (
-              <div key={t.rank} className="flex items-center gap-2.5 group cursor-pointer hover:opacity-90 transition-opacity">
-                <span className="w-4 h-4 rounded-full bg-slate-100 text-slate-500 text-[9px] font-bold flex items-center justify-center shrink-0">
-                  {t.rank}
-                </span>
-                <span className="text-xs text-slate-700 w-36 truncate font-medium">{t.label}</span>
-                <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+          <div className="divide-y divide-slate-100">
+            {recentSubmissions.length > 0 ? (
+              recentSubmissions.slice(0, 5).map((s) => (
+                <div key={s.id} className="flex items-center gap-2.5 py-2.5">
                   <div
-                    className={`h-full rounded-full transition-all duration-700 ${t.barColor}`}
-                    style={{ width: `${t.pct}%` }}
+                    className={`w-2 h-2 rounded-full shrink-0 ${
+                      s.verdict === 'ACCEPTED' ? 'bg-emerald-500' : 'bg-amber-400'
+                    }`}
                   />
+                  <div className="flex-1 min-w-0">
+                    <Link
+                      href={`/dashboard/dsa/problems/${s.problemSlug}` as NextLinkHref}
+                      className="text-xs font-semibold text-slate-800 truncate block hover:text-emerald-700"
+                    >
+                      {s.problemTitle}
+                    </Link>
+                    <div className="text-[10px] text-slate-400">
+                      {s.language.toUpperCase()} • {(s.verdict || s.status || '').replace(/_/g, ' ')}
+                    </div>
+                  </div>
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                      s.verdict === 'ACCEPTED'
+                        ? 'bg-emerald-50 text-emerald-700'
+                        : 'bg-amber-50 text-amber-700'
+                    }`}
+                  >
+                    {s.verdict === 'ACCEPTED' ? 'AC' : `${s.testsPassed ?? 0}/${s.totalTests ?? 10}`}
+                  </span>
                 </div>
-                <span className="text-[10px] font-bold text-slate-500 w-7 text-right">{t.pct}%</span>
+              ))
+            ) : (
+              <div className="py-6 text-center text-xs text-slate-400">
+                No recent submissions yet. Start solving to track your history!
               </div>
-            ))}
-          </div>
-
-          <div className="mt-4 p-3 bg-rose-50/70 border border-rose-100 rounded-xl">
-            <div className="text-[10px] font-semibold text-rose-700 flex items-center gap-1.5">
-              <Brain className="w-3 h-3" />
-              Practice tip: Solving problems across diverse topics unlocks achievement badges!
-            </div>
+            )}
           </div>
         </div>
 
-        {/* ─ Upcoming Test ─────────────────────────────────────────────── */}
-        <div className="col-span-12 lg:col-span-4 bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm flex flex-col justify-between">
+        {/* Weak Areas */}
+        <div className="col-span-1 lg:col-span-4 bg-white rounded-2xl border border-slate-200/80 p-5 flex flex-col justify-between shadow-xs">
           <div>
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-sm font-bold text-slate-800">Upcoming Assessment</span>
-              <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded-full">
-                Weekly Sprint
-              </span>
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                <span className="text-xs font-bold text-slate-800">Topics to Focus Next</span>
+              </div>
+              <span className="text-[10px] text-slate-400">Needs practice</span>
             </div>
 
-            <div className="flex items-center gap-3 mb-4 p-3 bg-purple-50/50 border border-purple-100 rounded-xl">
-              <div className="w-10 h-10 rounded-xl bg-purple-100 border border-purple-200 flex items-center justify-center shrink-0">
-                <Award className="w-5 h-5 text-purple-600" />
-              </div>
-              <div>
-                <div className="text-sm font-bold text-slate-900">Weekly Coding Assessment #4</div>
-                <div className="text-[10px] text-slate-500 mt-0.5 leading-relaxed line-clamp-1">
-                  Arrays, Two Pointers, Stacks & Queues
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2 mb-4">
-              {[
-                { icon: '❓', val: '4', label: 'Problems' },
-                { icon: '⏱', val: '60m', label: 'Duration' },
-                { icon: '⚡', val: 'Proctored', label: 'Mode' },
-              ].map(({ icon, val, label }) => (
-                <div key={label} className="flex flex-col items-center p-2 bg-slate-50 rounded-lg border border-slate-100">
-                  <span className="text-sm">{icon}</span>
-                  <span className="text-xs font-bold text-slate-900">{val}</span>
-                  <span className="text-[9px] text-slate-400">{label}</span>
+            <div className="space-y-3 mt-3">
+              {weakTopics.map((w) => (
+                <div key={w.id}>
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span className="font-semibold text-slate-700">
+                      {w.order}. {w.name}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold text-amber-600">
+                        {w.solvedProblems}/{w.totalProblems} ({w.percentage}%)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => focusTopicAccordion(w.slug)}
+                        className="text-[10px] font-bold text-emerald-700 hover:underline flex items-center gap-0.5 cursor-pointer"
+                      >
+                        Practice <ArrowRight className="w-2.5 h-2.5" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-amber-400 rounded-full"
+                      style={{ width: `${Math.max(8, w.percentage)}%` }}
+                    />
+                  </div>
                 </div>
               ))}
             </div>
           </div>
 
-          <div>
-            <Link
-              href="/dashboard/tests"
-              className="w-full flex items-center justify-center gap-1.5 py-2 border border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-emerald-300 text-xs font-bold rounded-xl transition-all mb-3"
-            >
-              View Test Catalog <ArrowRight className="w-3.5 h-3.5" />
-            </Link>
-
-            <div className="flex items-center gap-2 mt-auto">
-              <div className="flex -space-x-1.5">
-                {['#10b981', '#3b82f6', '#f59e0b', '#ef4444'].map((c, i) => (
-                  <div key={i} className="w-5 h-5 rounded-full border-2 border-white" style={{ backgroundColor: c }} />
-                ))}
-              </div>
-              <span className="text-[10px] text-slate-400">Join peers on the weekly leaderboard</span>
-            </div>
-          </div>
+          <button
+            type="button"
+            onClick={() => weakTopics[0] && focusTopicAccordion(weakTopics[0].slug)}
+            className="w-full mt-4 py-2 border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50 text-xs font-bold text-slate-700 hover:text-emerald-800 rounded-xl transition-all text-center block cursor-pointer"
+          >
+            Practice Weak Topics
+          </button>
         </div>
 
-        {/* ─ Recently Solved ───────────────────────────────────────────── */}
-        <div className="col-span-12 lg:col-span-4 bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm flex flex-col justify-between">
+        {/* Live Proctored Assessment (from PostgreSQL /api/v1/tests) */}
+        <div className="col-span-1 lg:col-span-4 bg-white rounded-2xl border border-slate-200/80 p-5 flex flex-col justify-between shadow-xs">
           <div>
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
-                <span className="text-sm font-bold text-slate-800">Recently Solved</span>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-emerald-700" />
+                <span className="text-xs font-bold text-slate-800">Proctored Assessment</span>
               </div>
-              <Link
-                href="/dashboard/dsa/problems"
-                className="text-[10px] text-emerald-700 font-semibold flex items-center gap-0.5 hover:text-emerald-800"
-              >
-                View All <ChevronRight className="w-3 h-3" />
-              </Link>
-            </div>
-
-            {solvedList.length > 0 ? (
-              <>
-                {/* Table header */}
-                <div className="grid grid-cols-4 text-[9px] font-bold text-slate-400 uppercase mb-2 px-1 tracking-wide">
-                  <span className="col-span-2">Problem</span>
-                  <span>Difficulty</span>
-                  <span>Solved</span>
-                </div>
-
-                <div className="divide-y divide-slate-100">
-                  {solvedList.slice(0, 5).map((p) => (
-                    <Link
-                      key={p.id}
-                      href={`/dashboard/dsa/problems/${p.slug}`}
-                      className="grid grid-cols-4 items-center py-2 px-1 hover:bg-slate-50 rounded-lg cursor-pointer group transition-colors"
-                    >
-                      <div className="col-span-2 flex items-center gap-1.5 min-w-0">
-                        <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />
-                        <span className="text-[10px] font-medium text-slate-700 truncate group-hover:text-emerald-700">
-                          {p.title}
-                        </span>
-                      </div>
-                      <DiffBadge difficulty={normalizeDifficulty(p.difficulty)} />
-                      <span className="text-[9px] text-slate-400">{formatSolvedDate(p.solvedAt)}</span>
-                    </Link>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <div className="py-8 text-center flex flex-col items-center justify-center gap-2">
-                <div className="w-10 h-10 rounded-full bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-400">
-                  <Code2 className="w-5 h-5" />
-                </div>
-                <div className="text-xs font-semibold text-slate-700">No solved problems yet</div>
-                <div className="text-[10px] text-slate-400 max-w-[200px]">
-                  Submit your first solution to earn XP and initiate your streak!
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Category breakdown mini pills */}
-          <div className="mt-4 pt-3 border-t border-slate-100 flex flex-wrap gap-1.5">
-            {['Arrays', 'Two Pointers', 'Stacks & Queues'].map((c) => (
-              <span
-                key={c}
-                className="text-[9px] font-medium px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-100 text-emerald-700"
-              >
-                {c}
+              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                {activeAssessment?.myLatestAttempt?.status === 'SUBMITTED'
+                  ? `Scored ${activeAssessment.myLatestAttempt.percentage}%`
+                  : 'Published'}
               </span>
-            ))}
-            <span className="text-[9px] font-medium px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-slate-500">
-              Verified
-            </span>
-          </div>
-        </div>
-      </div>
+            </div>
 
-      {/* ══ Row 4: Explore DSA by Topic ════════════════════════════════ */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm">
-        <div className="flex items-center justify-between mb-4">
+            <div className="text-sm font-extrabold text-slate-900 mb-3">
+              {activeAssessment?.title ?? 'Weekly DSA Assessment #1'}
+            </div>
+
+            <div className="space-y-1.5 text-xs text-slate-500 mb-4">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span>Fullscreen & Tab-Switch Proctored</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <span>Duration: {activeAssessment?.durationMinutes ?? 60} mins</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <BookOpen className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <span>
+                  {activeAssessment?.questionsCount ??
+                    activeAssessment?._count?.questions ??
+                    3}{' '}
+                  Assigned DSA Problems
+                </span>
+              </div>
+            </div>
+          </div>
+
           <div className="flex items-center gap-2">
-            <Code2 className="w-4 h-4 text-emerald-600" />
-            <span className="text-sm font-bold text-slate-800">Explore DSA by Topic</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] text-slate-400">{topicsList.length} topics</span>
-            <button
-              onClick={() => setTopicPage((p) => Math.max(0, p - 1))}
-              disabled={topicPage === 0}
-              className="p-1 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-30 transition-all cursor-pointer"
+            <Link
+              href="/tests"
+              className="flex-1 py-2 border border-slate-200 hover:border-slate-300 text-xs font-semibold text-slate-700 rounded-xl transition-all text-center"
             >
-              <ChevronLeft className="w-3.5 h-3.5 text-slate-500" />
-            </button>
-            <button
-              onClick={() => setTopicPage((p) => Math.min(totalPages - 1, p + 1))}
-              disabled={topicPage >= totalPages - 1}
-              className="p-1 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-30 transition-all cursor-pointer"
+              All Tests ({liveTests.length})
+            </Link>
+            <Link
+              href={(activeAssessment ? `/tests/${activeAssessment.id}` : '/tests') as NextLinkHref}
+              className="flex-1 flex items-center justify-center gap-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-all"
             >
-              <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
-            </button>
+              {activeAssessment?.myLatestAttempt?.status === 'SUBMITTED' ? 'View Result' : 'Start Test'}{' '}
+              <ArrowRight className="w-3 h-3" />
+            </Link>
           </div>
-        </div>
-
-        <div className="grid grid-cols-4 lg:grid-cols-8 gap-3">
-          {visibleTopics.map((t) => {
-            const pct = t.totalProblems > 0 ? Math.round((t.solvedProblems / t.totalProblems) * 100) : 0;
-            const colorCls = t.color ? t.color.split(' ').slice(0, 2).join(' ') : 'bg-emerald-50 text-emerald-700';
-            const iconText = t.icon || '⚡';
-            return (
-              <Link
-                key={t.slug}
-                href={`/dashboard/dsa/problems?topic=${t.slug}`}
-                className="flex flex-col items-center gap-2 p-3 rounded-xl border border-slate-100 hover:border-emerald-200 hover:bg-emerald-50/50 hover:-translate-y-0.5 transition-all group cursor-pointer"
-              >
-                <div
-                  className={`w-10 h-10 rounded-xl ${colorCls} flex items-center justify-center text-xl group-hover:scale-110 transition-transform`}
-                >
-                  {iconText}
-                </div>
-                <div className="text-center w-full">
-                  <div className="text-[10px] font-bold text-slate-800 group-hover:text-emerald-700 leading-tight mb-1 truncate">
-                    {t.name}
-                  </div>
-                  <div className="w-full h-1 bg-slate-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-emerald-500 rounded-full transition-all duration-500"
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
-                  <div className="text-[8px] text-slate-400 mt-0.5">
-                    {t.solvedProblems}/{t.totalProblems}
-                  </div>
-                </div>
-              </Link>
-            );
-          })}
         </div>
       </div>
-    </main>
+    </div>
   );
 }

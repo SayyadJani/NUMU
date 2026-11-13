@@ -3,11 +3,12 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Search, ChevronDown, Menu, X, User as UserIcon, LogOut, LayoutDashboard } from 'lucide-react';
+import { Search, ChevronDown, Menu, X, User as UserIcon, LogOut, LayoutDashboard, Sun, Moon } from 'lucide-react';
 import { Logo } from '@/components/ui/logo';
 import { Button } from '@/components/ui/button';
 import { NAV_LINKS } from '@/data/landing-data';
 import { useAuth } from '@/contexts/auth-context';
+import { useTheme } from '@/contexts/theme-context';
 import { useToast } from '@/components/ui/toast';
 import { Skeleton } from '@/components/ui/loading-state';
 
@@ -23,6 +24,7 @@ export function Header() {
   const [userMenuOpen, setUserMenuOpen] = React.useState(false);
   const pathname = usePathname();
   const { user, loading, isAuthenticated, logout } = useAuth();
+  const { isDark, toggleTheme } = useTheme();
   const { success, error } = useToast();
 
   const [resourcesOpen, setResourcesOpen] = React.useState(false);
@@ -208,13 +210,41 @@ export function Header() {
                     </Link>
 
                     <Link
-                      href={`/profile/${encodeURIComponent(user.username || 'alexrivera')}`}
+                      href={user.username ? `/profile/${encodeURIComponent(user.username)}` : '/profile'}
                       onClick={() => setUserMenuOpen(false)}
                       className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
                     >
                       <UserIcon className="w-3.5 h-3.5 text-slate-500" />
                       My Profile
                     </Link>
+
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={isDark}
+                      onClick={toggleTheme}
+                      className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
+                    >
+                      <span className="flex items-center gap-2">
+                        {isDark ? (
+                          <Moon className="w-3.5 h-3.5 text-emerald-500" />
+                        ) : (
+                          <Sun className="w-3.5 h-3.5 text-amber-500" />
+                        )}
+                        <span>Dark Mode</span>
+                      </span>
+                      <span
+                        className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ${
+                          isDark ? 'bg-emerald-600' : 'bg-slate-300'
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition duration-200 ${
+                            isDark ? 'translate-x-4' : 'translate-x-0'
+                          }`}
+                        />
+                      </span>
+                    </button>
 
                     <button
                       onClick={handleLogout}
@@ -290,7 +320,7 @@ export function Header() {
                   </div>
                 </div>
                 <Link
-                  href={`/profile/${encodeURIComponent(user.username || 'alexrivera')}`}
+                  href={user.username ? `/profile/${encodeURIComponent(user.username)}` : '/profile'}
                   onClick={() => setMobileOpen(false)}
                 >
                   <Button variant="outline" size="sm" className="w-full justify-center">

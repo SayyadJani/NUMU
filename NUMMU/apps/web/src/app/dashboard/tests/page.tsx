@@ -2,10 +2,22 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { DUMMY_TESTS } from '@/data/tests-data';
 import { DUMMY_CONTESTS } from '@/data/profile';
-import { DUMMY_UPCOMING_CONTEST } from '@/data/dashboard-mock';
 import type { TestItem } from '@/types/tests';
+
+const DUMMY_UPCOMING_CONTEST = {
+  id: 'contest-43',
+  title: 'NUMU Weekly Contest #43',
+  date: 'Sunday, 10:00 AM IST',
+  countdown: '2d 14h 22m',
+  duration: '90 Minutes',
+  problemCount: 4,
+  registeredCount: 1420,
+  isRegistered: false,
+  prize: 'Top 50 Fast-Tracked to Recruiter Screening',
+};
 import { TestInstructionsModal } from '@/components/tests/TestInstructionsModal';
 import { testsService } from '@/services/tests.service';
 import {
@@ -32,6 +44,7 @@ import {
   SlidersHorizontal,
   ClipboardList,
   Target,
+  Loader2,
 } from 'lucide-react';
 
 const COMPETITIVE_TIERS = [
@@ -189,33 +202,43 @@ export default function DashboardTestsPage() {
     }
   };
 
-  const [testsList, setTestsList] = useState<TestItem[]>(DUMMY_TESTS);
+  const [testsList, setTestsList] = useState<TestItem[]>([]);
+  const [loadingTests, setLoadingTests] = useState<boolean>(true);
 
   useEffect(() => {
     let isMounted = true;
     async function loadTests() {
       try {
+        setLoadingTests(true);
         const data = await testsService.getPublishedTests();
-        if (isMounted && data && Array.isArray(data) && data.length > 0) {
-          const mapped: TestItem[] = data.map((t: any) => ({
-            id: t.slug || t.id,
-            title: t.title,
-            status: (t.userAttemptStatus === 'COMPLETED' ? 'past' : 'ongoing') as any,
-            dateBadge: `Week ${t.weekNumber || 12}`,
-            fullDate: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-            questionsCount: t.totalQuestions || 5,
-            durationMinutes: t.durationMinutes || 90,
-            typeBadge: 'Coding',
-            passPercentage: t.passPercentage || 60,
-            syllabusTags: t.questions?.map((q: any) => q.problemTitle) || ['DSA', 'Algorithms'],
-            score: t.userScore ?? undefined,
-            userRank: t.userPassed ? 1 : undefined,
-            questions: [],
-          }));
-          setTestsList(mapped);
+        if (isMounted) {
+          if (Array.isArray(data) && data.length > 0) {
+            const mapped: TestItem[] = data.map((t: any) => ({
+              id: t.slug || t.id,
+              title: t.title,
+              status: (t.userAttemptStatus === 'COMPLETED' ? 'past' : 'ongoing') as any,
+              dateBadge: `Week ${t.weekNumber || 1}`,
+              fullDate: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+              questionsCount: t.totalQuestions ?? t.questions?.length ?? 0,
+              durationMinutes: t.durationMinutes || 90,
+              typeBadge: 'Coding',
+              passPercentage: t.passPercentage || 60,
+              syllabusTags: (t.questions || []).map((q: any) => q.problemTitle).filter(Boolean).length > 0
+                ? (t.questions || []).map((q: any) => q.problemTitle).filter(Boolean)
+                : ['DSA', 'Algorithms'],
+              score: t.userScore ?? undefined,
+              userRank: t.userPassed ? 1 : undefined,
+              questions: [],
+            }));
+            setTestsList(mapped);
+          } else {
+            setTestsList([]);
+          }
         }
       } catch {
-        // preserve defaults on offline
+        if (isMounted) setTestsList([]);
+      } finally {
+        if (isMounted) setLoadingTests(false);
       }
     }
     loadTests();
@@ -223,6 +246,39 @@ export default function DashboardTestsPage() {
       isMounted = false;
     };
   }, []);
+
+  const searchParams = useSearchParams();
+  const testParam = searchParams?.get('test');
+
+  useEffect(() => {
+    if (!testParam) return;
+    const found = testsList.find((t) => t.id === testParam || t.slug === testParam);
+    if (found) {
+      setModalTest(found);
+    } else {
+      testsService
+        .getTestBySlug(testParam)
+        .then((res) => {
+          if (res) {
+            setModalTest({
+              id: res.slug || res.id,
+              slug: res.slug,
+              title: res.title,
+              status: 'ongoing',
+              dateBadge: `Week ${res.weekNumber || 1}`,
+              fullDate: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+              questionsCount: res.totalQuestions || res.questions?.length || 0,
+              durationMinutes: res.durationMinutes || 90,
+              typeBadge: 'Coding',
+              passPercentage: res.passPercentage || 60,
+              syllabusTags: (res.topics || []).map((t: any) => t.name),
+              questions: [],
+            });
+          }
+        })
+        .catch(() => {});
+    }
+  }, [testParam, testsList]);
 
   // Filtered Tests
   const filteredTests = useMemo(() => {
@@ -249,7 +305,7 @@ export default function DashboardTestsPage() {
     });
   }, [searchQuery]);
 
-  const liveTest = DUMMY_TESTS.find((t) => t.status === 'ongoing') ?? DUMMY_TESTS[0]!;
+  const liveTest = testsList.find((t) => t.status === 'ongoing') ?? testsList[0] ?? null;
   const progressPct = Math.round((CURRENT_RATING / NEXT_TIER_RATING) * 100);
 
   return (
@@ -415,66 +471,74 @@ export default function DashboardTestsPage() {
             </div>
 
             {/* ── Live Test ── */}
-            <div className="bg-gradient-to-br from-[#f5f9ff] via-white to-white rounded-2xl border border-slate-200/80 shadow-[0_1px_2px_rgba(15,23,42,0.04)] p-3.5 flex flex-col gap-3">
-              <div className="flex gap-3">
-                <div className="w-12 h-12 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center shrink-0">
-                  <FileText className="w-6 h-6 text-blue-600" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <span className="inline-block text-[9px] font-extrabold tracking-wider text-blue-700 bg-blue-100/70 px-2 py-0.5 rounded">
-                    LIVE TEST
-                  </span>
-                  <h2 className="text-[15px] font-extrabold text-slate-900 mt-1.5 leading-snug">
-                    {liveTest.title}
-                  </h2>
-                  <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">
-                    {liveTest.questionsCount} Questions (MCQ + Live Coding)
-                    <br />
-                    Passing score: {liveTest.passPercentage}%
-                  </p>
-                </div>
-                <div className="flex flex-col items-end gap-3 shrink-0">
-                  <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-full">
-                    <span className="relative flex w-2 h-2">
-                      <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
-                      <span className="relative inline-flex w-2 h-2 rounded-full bg-emerald-500" />
-                    </span>
-                    Ends in {liveTest.endsIn ?? '2h 14m'}
-                  </span>
-                  <button
-                    id="attempt-live-test-btn"
-                    onClick={() => setModalTest(liveTest)}
-                    className="px-4 py-2.5 rounded-lg text-xs font-bold bg-[#0b5c39] hover:bg-[#08482c] text-white shadow-sm transition-all cursor-pointer flex items-center gap-1.5 active:scale-[0.98]"
-                  >
-                    Attempt Test Now
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { icon: Clock, label: 'Duration', value: `${liveTest.durationMinutes} mins` },
-                  { icon: Code, label: 'Format', value: 'Coding + MCQ' },
-                  { icon: Layers, label: 'Topics', value: 'Arrays, Trees, Graphs' },
-                ].map(({ icon: Icon, label, value }) => (
-                  <div key={label} className="flex items-center gap-2.5 border border-slate-200/80 rounded-lg px-2.5 py-2 bg-white">
-                    <Icon className="w-4 h-4 text-slate-500 shrink-0" />
-                    <div className="min-w-0">
-                      <div className="text-[10px] text-slate-500">{label}</div>
-                      <div className="text-[11px] font-bold text-slate-800 truncate">{value}</div>
-                    </div>
+            {liveTest ? (
+              <div className="bg-gradient-to-br from-[#f5f9ff] via-white to-white rounded-2xl border border-slate-200/80 shadow-[0_1px_2px_rgba(15,23,42,0.04)] p-3.5 flex flex-col gap-3">
+                <div className="flex gap-3">
+                  <div className="w-12 h-12 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center shrink-0">
+                    <FileText className="w-6 h-6 text-blue-600" />
                   </div>
-                ))}
+                  <div className="flex-1 min-w-0">
+                    <span className="inline-block text-[9px] font-extrabold tracking-wider text-blue-700 bg-blue-100/70 px-2 py-0.5 rounded">
+                      LIVE TEST
+                    </span>
+                    <h2 className="text-[15px] font-extrabold text-slate-900 mt-1.5 leading-snug">
+                      {liveTest.title}
+                    </h2>
+                    <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">
+                      {liveTest.questionsCount} Questions (MCQ + Live Coding)
+                      <br />
+                      Passing score: {liveTest.passPercentage}%
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-end gap-3 shrink-0">
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-full">
+                      <span className="relative flex w-2 h-2">
+                        <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
+                        <span className="relative inline-flex w-2 h-2 rounded-full bg-emerald-500" />
+                      </span>
+                      Ends in {liveTest.endsIn ?? '2h 14m'}
+                    </span>
+                    <button
+                      id="attempt-live-test-btn"
+                      onClick={() => setModalTest(liveTest)}
+                      className="px-4 py-2.5 rounded-lg text-xs font-bold bg-[#0b5c39] hover:bg-[#08482c] text-white shadow-sm transition-all cursor-pointer flex items-center gap-1.5 active:scale-[0.98]"
+                    >
+                      Attempt Test Now
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { icon: Clock, label: 'Duration', value: `${liveTest.durationMinutes} mins` },
+                    { icon: Code, label: 'Format', value: 'Coding + MCQ' },
+                    { icon: Layers, label: 'Topics', value: (liveTest.syllabusTags || []).slice(0, 3).join(', ') || 'DSA & Algorithms' },
+                  ].map(({ icon: Icon, label, value }) => (
+                    <div key={label} className="flex items-center gap-2.5 border border-slate-200/80 rounded-lg px-2.5 py-2 bg-white">
+                      <Icon className="w-4 h-4 text-slate-500 shrink-0" />
+                      <div className="min-w-0">
+                        <div className="text-[10px] text-slate-500">{label}</div>
+                        <div className="text-[11px] font-bold text-slate-800 truncate">{value}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="bg-white rounded-2xl border border-dashed border-slate-200 p-6 text-center">
+                <FileText className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                <h3 className="text-sm font-bold text-slate-800">No Assessments Live</h3>
+                <p className="text-xs text-slate-500 mt-1">Check back soon for the next scheduled weekly proctored test.</p>
+              </div>
+            )}
           </section>
 
           {/* ══ Tabs + Filters Row ════════════════════════════════════════════ */}
           <section className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pt-1">
             <div className="flex items-center gap-6 border-b border-slate-200 self-start">
               {([
-                { key: 'tests', label: 'All Tests & Assessments', icon: ClipboardList, count: DUMMY_TESTS.length },
+                { key: 'tests', label: 'All Tests & Assessments', icon: ClipboardList, count: testsList.length },
                 { key: 'contests', label: 'Contests & Competitive Arena', icon: Trophy, count: DUMMY_CONTESTS.length },
               ] as const).map(({ key, label, icon: Icon, count }) => {
                 const active = mainTab === key;
@@ -548,11 +612,16 @@ export default function DashboardTestsPage() {
           {/* ══ TAB 1: TESTS & ASSESSMENTS LIST ═══════════════════════════════ */}
           {mainTab === 'tests' && (
             <section className="space-y-1.5">
-              {filteredTests.length === 0 && (
-                <div className="bg-white rounded-xl border border-slate-200/80 py-10 text-center text-xs text-slate-500">
-                  No tests match your filters.
+              {loadingTests ? (
+                <div className="bg-white rounded-xl border border-slate-200/80 py-10 flex flex-col items-center justify-center text-xs text-slate-500 gap-2">
+                  <Loader2 className="w-5 h-5 text-emerald-600 animate-spin" />
+                  <span>Loading assessments from database...</span>
                 </div>
-              )}
+              ) : filteredTests.length === 0 ? (
+                <div className="bg-white rounded-xl border border-slate-200/80 py-10 text-center text-xs text-slate-500">
+                  No tests found. Assessments created by trainers in the Admin Console will appear here live.
+                </div>
+              ) : null}
 
               {filteredTests.map((test) => {
                 const isBookmarked = !!bookmarkedMap[test.id];

@@ -15,6 +15,9 @@ import { ProgressModule } from './modules/progress/progress.module';
 import { GamificationModule } from './modules/gamification/gamification.module';
 import { TestsModule } from './modules/tests/tests.module';
 import { NotesModule } from './modules/notes/notes.module';
+import { AdminModule } from './modules/admin/admin.module';
+import { PracticeModule } from './modules/practice/practice.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
@@ -48,6 +51,9 @@ import { AppService } from './app.service';
     GamificationModule,
     TestsModule,
     NotesModule,
+    AdminModule,
+    PracticeModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [

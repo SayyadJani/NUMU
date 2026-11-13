@@ -66,15 +66,7 @@ const EditProfileModal = dynamic(
   () => import('@/components/profile/EditProfileModal').then((m) => m.EditProfileModal)
 );
 
-import { profileService } from '@/services/profile-service';
-import {
-  INITIAL_PROFILE,
-  INITIAL_DEV_SKILLS,
-  INITIAL_PROJECTS,
-  INITIAL_TESTS,
-  DUMMY_DSA_STATS,
-  DUMMY_ACTIVITY,
-} from '@/data/profile';
+import { profileService, getEmptyProfile } from '@/services/profile-service';
 import type {
   UserProfile,
   ProfileTab,
@@ -104,19 +96,35 @@ export default function ProfilePage() {
   const params = useParams();
   const { user } = useAuth();
   const rawUsername = params ? (params['username'] as string | undefined) : undefined;
-  const username = rawUsername ? decodeURIComponent(rawUsername) : user?.username || INITIAL_PROFILE.username;
+  const username = rawUsername ? decodeURIComponent(rawUsername) : user?.username || '';
   const isOwnProfile = !user || user.username === username;
 
   const { success, error } = useToast();
 
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<ProfileTab>('Overview');
-  const [profile, setProfile] = useState<UserProfile>(INITIAL_PROFILE);
-  const [projects, setProjects] = useState<Project[]>(INITIAL_PROJECTS);
-  const [dsaStats, setDsaStats] = useState<DsaStatistics>(DUMMY_DSA_STATS);
-  const [skills, setSkills] = useState<DevSkill[]>(INITIAL_DEV_SKILLS);
-  const [activity, setActivity] = useState<ActivityData>(DUMMY_ACTIVITY);
-  const [tests, setTests] = useState<TestResult[]>(INITIAL_TESTS);
+  const [profile, setProfile] = useState<UserProfile>(() => getEmptyProfile(username || ''));
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [dsaStats, setDsaStats] = useState<DsaStatistics>({
+    solved: { easy: 0, medium: 0, hard: 0, total: 0 },
+    topTopics: [],
+    acceptanceRate: '0.0%',
+    totalSubmissions: 0,
+    globalRank: 1,
+    recentSubmissions: [],
+  });
+  const [skills, setSkills] = useState<DevSkill[]>([]);
+  const [activity, setActivity] = useState<ActivityData>({
+    contributions: 0,
+    longestStreak: 0,
+    totalLearningHours: 0,
+    currentStreak: 0,
+    activeDaysCount: 0,
+    heatmapRows: Array.from({ length: 7 }, () => Array(52).fill(false)),
+    heatmapDays: Array.from({ length: 7 }, () => Array(52)),
+    timeline: [],
+  });
+  const [tests, setTests] = useState<TestResult[]>([]);
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
@@ -124,6 +132,7 @@ export default function ProfilePage() {
   useEffect(() => {
     let isMounted = true;
     async function loadData() {
+      if (!username) return;
       setLoading(true);
       try {
         const [
@@ -152,6 +161,9 @@ export default function ProfilePage() {
         }
       } catch (err) {
         console.error('Failed to load profile data:', err);
+        if (isMounted) {
+          setProfile((prev) => (prev.username ? prev : getEmptyProfile(username)));
+        }
       } finally {
         if (isMounted) {
           setLoading(false);
@@ -195,13 +207,13 @@ export default function ProfilePage() {
     { id: 'DSA', label: 'DSA', icon: Code2, badge: dsaStats.solved.total },
     { id: 'Development', label: 'Development', icon: Cpu, badge: skills.length },
     { id: 'Projects', label: 'Projects', icon: FolderGit2, badge: projects.length },
-    { id: 'Tests', label: 'Tests', icon: Trophy, badge: profile.stats.totalTestsConducted ?? (tests.length || 23) },
+    { id: 'Tests', label: 'Tests', icon: Trophy, badge: profile.stats.testsAttended ?? tests.length },
     { id: 'Activity', label: 'Activity', icon: Flame, badge: `${activity.currentStreak}d` },
   ];
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#f8fafc] flex flex-col">
+      <div className="min-h-screen bg-[#f8fafc] dark:bg-[#061e14] flex flex-col">
         <Header />
         <ProfileSkeleton />
         <Footer />
@@ -210,7 +222,7 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] flex flex-col selection:bg-emerald-100 selection:text-emerald-900">
+    <div className="min-h-screen bg-[#f8fafc] dark:bg-[#061e14] flex flex-col selection:bg-emerald-100 dark:selection:bg-emerald-900 selection:text-emerald-900 dark:selection:text-emerald-100">
       {/* ── Global Unified Header ── */}
       <Header />
 
@@ -233,10 +245,10 @@ export default function ProfilePage() {
 
           <div className="hidden sm:inline-flex items-center gap-2.5 text-xs text-slate-300 font-mono">
             <span className="px-3 py-1.5 rounded-xl bg-slate-950/70 border border-emerald-500/30 shadow-xs font-semibold">
-              Rank #{profile.stats.globalRank ?? 142}
+              Rank #{profile.stats.globalRank ?? 1}
             </span>
             <span className="px-3 py-1.5 rounded-xl bg-slate-950/70 border border-emerald-500/30 shadow-xs font-semibold">
-              Rating {profile.stats.contestRating ?? 1640}
+              Rating {profile.stats.contestRating ?? 1200}
             </span>
           </div>
         </div>
@@ -298,7 +310,7 @@ export default function ProfilePage() {
               {activeTab === 'Tests' && (
                 <TestsTab
                   tests={tests}
-                  rating={profile.stats.contestRating ?? 1420}
+                  rating={profile.stats.contestRating ?? 1200}
                   stats={profile.stats}
                 />
               )}

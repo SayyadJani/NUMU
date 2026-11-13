@@ -28,6 +28,7 @@ export interface TestQuestion {
 
 export interface TestItem {
   id: string;
+  slug?: string;
   title: string;
   status: TestStatus;
   dateBadge: string;
@@ -93,12 +94,19 @@ export interface TestAttemptState {
     passPercentage: number;
     totalMarks: number;
     totalQuestions: number;
+    maxTabSwitches?: number;
+    requireFullscreen?: boolean;
+    disableCopyPaste?: boolean;
   };
   startedAt: string;
   expiresAt: string;
   totalSecondsLeft: number;
   currentQuestion: number;
   status: 'IN_PROGRESS' | 'SUBMITTED' | 'EXPIRED';
+  tabSwitchCount?: number;
+  fullscreenExitCount?: number;
+  autoSubmitted?: boolean;
+  terminationReason?: string | null;
   questions: AttemptQuestion[];
   answers: Record<number, {
     code: string;
@@ -162,6 +170,10 @@ export interface FinalizeTestResult {
   passed: boolean;
   submittedAt: string;
   totalMinutesSpent?: number;
+  tabSwitchCount?: number;
+  fullscreenExitCount?: number;
+  autoSubmitted?: boolean;
+  terminationReason?: string | null;
   stats?: {
     totalQuestions: number;
     correctCount: number;

@@ -7,55 +7,45 @@ import {
   CurrentLearningPath,
   ContinueLearningBanner,
   DailyChallenge,
-  UpcomingContest,
   UpcomingTest,
   TodaysTasks,
-  CurrentProject,
   RecommendedPractice,
   RecentActivity,
-  MotivationStats,
   YourGoals,
 } from '@/components/dashboard';
 
 export default function DashboardPage() {
   return (
-    <main className="flex-1 overflow-y-auto px-6 py-6 space-y-5">
-      {/* Row 1: Greeting + Streak + Activity */}
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
+      {/* 1. Top Greeting, Level XP Bar, Live Streak & 21-Day Activity Matrix */}
       <DashboardGreeting />
 
-      {/* Row 1.5: Quick Metrics Overview */}
+      {/* 2. Quick Stats Overview (4 Live PostgreSQL KPI Cards) */}
       <QuickStatsRow />
 
-      {/* Row 2: DSA Progress | Dev Progress | Current Learning Path */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+      {/* 3. Progress Section: DSA Mastery + Topic Coverage + Shared 8-Topic Curriculum Path */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <DsaProgressCard />
         <DevProgressCard />
         <CurrentLearningPath />
       </div>
 
-      {/* Row 3: Continue Learning Banner (full width) */}
+      {/* 4. Full-Width Continue Learning Banner (Live Current Topic & Next Problem) */}
       <ContinueLearningBanner />
 
-      {/* Row 4: Daily Challenge | Upcoming Contest | Upcoming Test */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* 5. Action Zone: Daily Challenge, Proctored Assessment, Curriculum Checklist */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <DailyChallenge />
-        <UpcomingContest />
         <UpcomingTest />
-      </div>
-
-      {/* Row 5: Today's Tasks | Current Project | Recommended Practice */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <TodaysTasks />
-        <CurrentProject />
-        <RecommendedPractice />
       </div>
 
-      {/* Row 6: Recent Activity | Motivation Quote+Stats | Your Goals */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* 6. Practice & Submissions Zone: Curriculum Problems, Recent Judge0 Submissions, Milestone Goals */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <RecommendedPractice />
         <RecentActivity />
-        <MotivationStats />
         <YourGoals />
       </div>
-    </main>
+    </div>
   );
 }

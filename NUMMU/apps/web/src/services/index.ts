@@ -1,4 +1,3 @@
-export * from './dashboard.service';
 export * from './dsa.service';
 export * from './development.service';
 export * from './tests.service';
@@ -11,3 +10,4 @@ export * from './notes.service';
 export * from './auth.service';
 export * from './submissions.service';
 export * from './progress.service';
+export * from './practice.service';

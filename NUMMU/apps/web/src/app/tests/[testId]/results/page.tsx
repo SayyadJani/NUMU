@@ -146,12 +146,22 @@ export default function TestResultsPage() {
                   )}
                 </span>
 
-                {passed && (
+                  {passed && (
                   <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200">
                     <Sparkles className="w-3.5 h-3.5 text-amber-500" />
                     <span>+150 XP Awarded</span>
                   </span>
                 )}
+
+                {result.autoSubmitted && (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-300">
+                    <span>{result.terminationReason || 'Auto-Submitted by Proctoring'}</span>
+                  </span>
+                )}
+
+                <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-white/80 text-slate-700 border border-slate-200">
+                  <span>Tab Switches: {result.tabSwitchCount ?? 0}</span>
+                </span>
               </div>
 
               <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">

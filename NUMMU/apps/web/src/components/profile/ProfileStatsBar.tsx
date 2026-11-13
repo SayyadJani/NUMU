@@ -96,7 +96,7 @@ export function ProfileStatsBar({ stats, quote }: ProfileStatsBarProps) {
 
   return (
     <div className="w-full">
-      <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm p-4 sm:p-5 transition-all">
+      <div className="bg-white dark:bg-[#0b2b1e] rounded-3xl border border-slate-200/90 dark:border-emerald-900/40 shadow-sm p-4 sm:p-5 transition-all">
         {/* Responsive Grid with clean vertical cards that never truncate text */}
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-3.5">
           {statItems.map((item) => {
@@ -104,7 +104,7 @@ export function ProfileStatsBar({ stats, quote }: ProfileStatsBarProps) {
             return (
               <div
                 key={item.label}
-                className={`p-3.5 sm:p-4 rounded-2xl bg-gradient-to-b from-slate-50/80 to-white border border-slate-200/80 ${item.accentBorder} hover:shadow-md transition-all duration-200 flex flex-col justify-between min-w-0 group`}
+                className={`p-3.5 sm:p-4 rounded-2xl bg-slate-50/70 dark:bg-[#082218] border border-slate-200/80 dark:border-emerald-900/40 ${item.accentBorder} hover:shadow-md transition-all duration-200 flex flex-col justify-between min-w-0 group`}
               >
                 {/* Top Row: Icon + Indicator Badge */}
                 <div className="flex items-center justify-between mb-3">
@@ -120,13 +120,13 @@ export function ProfileStatsBar({ stats, quote }: ProfileStatsBarProps) {
 
                 {/* Stat Numbers & Labels - Stacked Vertically to prevent any truncation */}
                 <div>
-                  <div className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight leading-none">
+                  <div className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight leading-none">
                     {item.value}
                   </div>
-                  <div className="text-xs font-bold text-slate-700 leading-snug mt-1.5 whitespace-normal">
+                  <div className="text-xs font-bold text-slate-700 dark:text-slate-200 leading-snug mt-1.5 whitespace-normal">
                     {item.label}
                   </div>
-                  <div className="text-[11px] text-slate-400 font-medium leading-snug mt-1 whitespace-normal">
+                  <div className="text-[11px] text-slate-400 dark:text-slate-400 font-medium leading-snug mt-1 whitespace-normal">
                     {item.subtext}
                   </div>
                 </div>
@@ -137,14 +137,14 @@ export function ProfileStatsBar({ stats, quote }: ProfileStatsBarProps) {
 
         {/* Motivational Quote & Live Daily Pulse Strip */}
         {quote && (
-          <div className="mt-4 pt-3.5 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2 text-slate-600 italic min-w-0">
-              <Quote className="w-4 h-4 text-emerald-600 shrink-0 not-italic opacity-80" />
+          <div className="mt-4 pt-3.5 border-t border-slate-100 dark:border-emerald-900/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300 italic min-w-0">
+              <Quote className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 not-italic opacity-80" />
               <span className="truncate font-medium">{quote}</span>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-800 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200/80">
-                <Sparkles className="w-3 h-3 text-emerald-600" />
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-3 py-1 rounded-full border border-emerald-200/80 dark:border-emerald-800/40">
+                <Sparkles className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
                 <span>NUMU Daily Pulse</span>
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               </span>

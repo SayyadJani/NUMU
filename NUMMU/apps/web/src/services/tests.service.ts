@@ -60,10 +60,32 @@ export class TestsApiService {
   }
 
   /**
+   * Report a proctoring violation (TAB_SWITCH or FULLSCREEN_EXIT).
+   * Server auto-submits when tabSwitchCount exceeds maxTabSwitches (> 3).
+   */
+  async reportViolation(
+    slug: string,
+    type: 'TAB_SWITCH' | 'FULLSCREEN_EXIT',
+  ): Promise<{
+    attemptId: string;
+    status: string;
+    tabSwitchCount: number;
+    fullscreenExitCount: number;
+    maxTabSwitches: number;
+    autoSubmitted: boolean;
+    terminationReason: string | null;
+  }> {
+    return apiClient.post(`/tests/${slug}/attempt/violation`, { type });
+  }
+
+  /**
    * Finalize the entire test attempt and compute authoritative score.
    */
-  async finalizeAttempt(slug: string): Promise<FinalizeTestResult> {
-    return apiClient.post<FinalizeTestResult>(`/tests/${slug}/attempt/finalize`);
+  async finalizeAttempt(
+    slug: string,
+    payload?: { autoSubmitted?: boolean; terminationReason?: string },
+  ): Promise<FinalizeTestResult> {
+    return apiClient.post<FinalizeTestResult>(`/tests/${slug}/attempt/finalize`, payload);
   }
 
   /**
@@ -71,6 +93,13 @@ export class TestsApiService {
    */
   async getAttemptResult(slug: string): Promise<FinalizeTestResult> {
     return apiClient.get<FinalizeTestResult>(`/tests/${slug}/attempt/result`);
+  }
+
+  /**
+   * Reset the current user's attempt (for trainer sandbox and test runs).
+   */
+  async resetAttempt(slug: string): Promise<{ success: boolean; message: string }> {
+    return apiClient.post<{ success: boolean; message: string }>(`/tests/${slug}/attempt/reset`);
   }
 
   // ── Backward Compatible / Legacy Interface Helpers ──

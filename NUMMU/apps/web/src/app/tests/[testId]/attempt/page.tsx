@@ -30,6 +30,9 @@ import {
   Code2,
   Loader2,
   AlertCircle,
+  ShieldAlert,
+  ShieldCheck,
+  EyeOff,
 } from 'lucide-react';
 import { Logo } from '@/components/ui/logo';
 import dynamic from 'next/dynamic';
@@ -169,6 +172,19 @@ export default function TestAttemptInterfacePage() {
   // Submit confirmation modal
   const [showSubmitModal, setShowSubmitModal] = useState(false);
 
+  // ── Proctoring State (Fullscreen + Tab Switch Counter + Copy/Paste Guard) ──
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [requireFullscreen, setRequireFullscreen] = useState<boolean>(true);
+  const [disableCopyPaste, setDisableCopyPaste] = useState<boolean>(true);
+  const [tabSwitchCount, setTabSwitchCount] = useState<number>(0);
+  const [maxTabSwitches, setMaxTabSwitches] = useState<number>(3);
+  const [showTabWarningModal, setShowTabWarningModal] = useState<boolean>(false);
+  const [autoTerminatedReason, setAutoTerminatedReason] = useState<string | null>(null);
+  const lastViolationTsRef = useRef<number>(0);
+  const hadEnteredFullscreenRef = useRef<boolean>(false);
+  const tabSwitchCountRef = useRef<number>(0);
+  tabSwitchCountRef.current = tabSwitchCount;
+
   // Left panel tab
   const [leftTab, setLeftTab] = useState<'Description' | 'Submissions' | 'Editorial'>('Description');
 
@@ -196,6 +212,10 @@ export default function TestAttemptInterfacePage() {
         setTestMeta(data.test);
         setQuestions(data.questions);
         setTotalSecondsLeft(data.totalSecondsLeft ?? 5400);
+        setTabSwitchCount(data.tabSwitchCount ?? 0);
+        setMaxTabSwitches(data.test?.maxTabSwitches ?? 3);
+        setRequireFullscreen(data.test?.requireFullscreen ?? true);
+        setDisableCopyPaste(data.test?.disableCopyPaste ?? true);
 
         // Populate answers map
         const loadedAnswers: Record<number, UserQuestionAnswer> = {};
@@ -327,15 +347,207 @@ export default function TestAttemptInterfacePage() {
     return () => clearInterval(interval);
   }, [loading, initError, isSubmitting]);
 
-  const handleAutoFinalize = async () => {
-    try {
-      setIsSubmitting(true);
-      await testsService.finalizeAttempt(testId);
-      router.replace(`/tests/${testId}/results`);
-    } catch {
-      router.replace(`/tests/${testId}/results`);
+  const exitFullscreenSafely = useCallback(async () => {
+    if (typeof document !== 'undefined') {
+      try {
+        if (document.fullscreenElement) {
+          await document.exitFullscreen();
+        } else if ((document as any).webkitFullscreenElement) {
+          await (document as any).webkitExitFullscreen?.();
+        } else if ((document as any).mozFullScreenElement) {
+          await (document as any).mozCancelFullScreen?.();
+        } else if ((document as any).msFullscreenElement) {
+          await (document as any).msExitFullscreen?.();
+        }
+      } catch {
+        // Ignore if already exited or user cancelled
+      }
     }
-  };
+  }, []);
+
+  const enterFullscreen = useCallback(async () => {
+    if (typeof document === 'undefined') return;
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+      }
+      setIsFullscreen(true);
+      hadEnteredFullscreenRef.current = true;
+    } catch {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    }
+  }, []);
+
+  const handleAutoFinalize = useCallback(
+    async (reason?: string) => {
+      try {
+        setIsSubmitting(true);
+        if (reason) setAutoTerminatedReason(reason);
+        await exitFullscreenSafely();
+        await testsService.finalizeAttempt(
+          testId,
+          reason ? { autoSubmitted: true, terminationReason: reason } : undefined,
+        );
+        router.replace(`/tests/${testId}/results`);
+      } catch {
+        await exitFullscreenSafely();
+        router.replace(`/tests/${testId}/results`);
+      }
+    },
+    [testId, router, exitFullscreenSafely],
+  );
+
+  // ── 4b. Proctoring: Fullscreen Tracking + Tab Switch Counter (> maxTabSwitches auto-submits) ──
+  useEffect(() => {
+    if (loading || initError || isSubmitting) return;
+
+    // Attempt automatic fullscreen entry on mount
+    if (typeof document !== 'undefined') {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+      if (document.fullscreenElement) {
+        hadEnteredFullscreenRef.current = true;
+      } else {
+        document.documentElement.requestFullscreen?.().then(() => {
+          setIsFullscreen(true);
+          hadEnteredFullscreenRef.current = true;
+        }).catch(() => {
+          // Browser requires explicit user gesture; Fullscreen Gate modal will prompt the user
+        });
+      }
+    }
+
+    const handleFullscreenChange = () => {
+      const active = Boolean(document.fullscreenElement);
+      setIsFullscreen(active);
+      if (active) {
+        hadEnteredFullscreenRef.current = true;
+      } else if (hadEnteredFullscreenRef.current && !isSubmitting) {
+        testsService.reportViolation(testId, 'FULLSCREEN_EXIT').catch(() => {});
+      }
+    };
+
+    const recordTabSwitch = async () => {
+      const now = Date.now();
+      // Debounce within 1s so visibilitychange + window blur don't double-count a single switch
+      if (now - lastViolationTsRef.current < 1000) return;
+      lastViolationTsRef.current = now;
+
+      const nextCount = tabSwitchCountRef.current + 1;
+      tabSwitchCountRef.current = nextCount;
+      setTabSwitchCount(nextCount);
+
+      // Flush latest code before potential auto-submission
+      if (currentQuestion) {
+        testsService
+          .autosaveAnswer(testId, {
+            problemSlug: currentQuestion.slug,
+            code,
+            language: normalizeLangKey(language),
+            isMarkedForReview: markedQuestions.has(currentQuestion.number),
+            currentQuestionIndex: currentIdx,
+            timeSpentSeconds: timeSpentOnCurrentRef.current,
+          })
+          .catch(() => {});
+      }
+
+      if (nextCount > maxTabSwitches) {
+        const reason = `Auto-submitted: Exceeded maximum allowed tab switches (${maxTabSwitches})`;
+        await handleAutoFinalize(reason);
+        return;
+      }
+
+      setShowTabWarningModal(true);
+
+      try {
+        const serverRes = await testsService.reportViolation(testId, 'TAB_SWITCH');
+        setTabSwitchCount(serverRes.tabSwitchCount);
+        tabSwitchCountRef.current = serverRes.tabSwitchCount;
+        if (serverRes.autoSubmitted || serverRes.tabSwitchCount > serverRes.maxTabSwitches) {
+          const reason =
+            serverRes.terminationReason ||
+            `Auto-submitted: Exceeded maximum allowed tab switches (${serverRes.maxTabSwitches})`;
+          exitFullscreenSafely();
+          router.replace(`/tests/${testId}/results`);
+        }
+      } catch {
+        // Local threshold check above still enforces the > maxTabSwitches termination
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden || document.visibilityState === 'hidden') {
+        void recordTabSwitch();
+      }
+    };
+
+    const handleWindowBlur = () => {
+      // Strictly detect when window loses focus (switched tab, alt-tabbed, switched apps)
+      void recordTabSwitch();
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleWindowBlur);
+
+    // ── Copy/Paste Proctoring Prevention (when enabled by Admin) ──
+    const preventCopyPaste = (e: ClipboardEvent) => {
+      if (disableCopyPaste) {
+        e.preventDefault();
+      }
+    };
+
+    const preventCut = (e: ClipboardEvent) => {
+      if (disableCopyPaste) {
+        e.preventDefault();
+      }
+    };
+
+    const preventContextMenu = (e: MouseEvent) => {
+      if (disableCopyPaste) {
+        e.preventDefault();
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!disableCopyPaste) return;
+      // Block Ctrl+C, Ctrl+V, Ctrl+X, Cmd+C, Cmd+V, Cmd+X
+      if ((e.ctrlKey || e.metaKey) && ['c', 'v', 'x', 'C', 'V', 'X'].includes(e.key)) {
+        e.preventDefault();
+      }
+    };
+
+    document.addEventListener('copy', preventCopyPaste);
+    document.addEventListener('paste', preventCopyPaste);
+    document.addEventListener('cut', preventCut);
+    document.addEventListener('contextmenu', preventContextMenu);
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleWindowBlur);
+      document.removeEventListener('copy', preventCopyPaste);
+      document.removeEventListener('paste', preventCopyPaste);
+      document.removeEventListener('cut', preventCut);
+      document.removeEventListener('contextmenu', preventContextMenu);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [
+    loading,
+    initError,
+    isSubmitting,
+    testId,
+    maxTabSwitches,
+    disableCopyPaste,
+    currentQuestion,
+    code,
+    language,
+    markedQuestions,
+    currentIdx,
+    handleAutoFinalize,
+    exitFullscreenSafely,
+    router,
+  ]);
 
   // ── 5. Drag Divider Handlers for Testcases Drawer ──
   const handleDragStart = (e: React.MouseEvent) => {
@@ -499,6 +711,7 @@ export default function TestAttemptInterfacePage() {
     try {
       setIsSubmitting(true);
       setShowSubmitModal(false);
+      await exitFullscreenSafely();
       await testsService.finalizeAttempt(testId);
       router.push(`/tests/${testId}/results`);
     } catch (err: any) {
@@ -688,12 +901,44 @@ export default function TestAttemptInterfacePage() {
           )}
         </div>
 
-        {/* Right Timer & Submit Button */}
-        <div className="flex items-center gap-3">
+        {/* Right Proctoring Status, Timer & Submit Button */}
+        <div className="flex items-center gap-2 sm:gap-3">
+          {/* Tab Switch Counter Pill */}
+          <div
+            className={`hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-colors ${
+              tabSwitchCount === 0
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                : tabSwitchCount < maxTabSwitches
+                ? 'bg-amber-50 border-amber-300 text-amber-900'
+                : 'bg-rose-50 border-rose-300 text-rose-800 animate-pulse'
+            }`}
+            title={`Maximum ${maxTabSwitches} tab switches allowed. Exceeding ${maxTabSwitches} switches automatically ends and submits the test.`}
+          >
+            <EyeOff className="w-3.5 h-3.5" />
+            <span>
+              Tab Switches: {tabSwitchCount}/{maxTabSwitches}
+            </span>
+          </div>
+
+          {/* Fullscreen Status Toggle Button */}
+          <button
+            type="button"
+            onClick={enterFullscreen}
+            className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition-colors cursor-pointer ${
+              isFullscreen
+                ? 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                : 'bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100'
+            }`}
+            title={isFullscreen ? 'Full-Screen Proctoring Active' : 'Click to enter Full-Screen Mode'}
+          >
+            <Maximize2 className="w-3.5 h-3.5" />
+            <span className="hidden lg:inline">{isFullscreen ? 'Full Screen' : 'Enter Full Screen'}</span>
+          </button>
+
           <AttemptTimerBadge
             initialSeconds={totalSecondsLeft}
             isPaused={loading || Boolean(initError) || isSubmitting}
-            onTimeExpired={handleAutoFinalize}
+            onTimeExpired={() => handleAutoFinalize('Auto-submitted: Assessment timer expired')}
           />
 
           <button
@@ -1317,6 +1562,106 @@ export default function TestAttemptInterfacePage() {
                 )}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Tab Switch Violation Warning Modal ── */}
+      {showTabWarningModal && !isSubmitting && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border-2 border-rose-200 space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center shrink-0">
+                <ShieldAlert className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  Tab Switch Detected ({tabSwitchCount} / {maxTabSwitches})
+                </h3>
+                <p className="text-xs text-rose-600 font-semibold">
+                  Proctoring Violation Warning
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-rose-50/70 border border-rose-200/80 text-xs text-slate-700 leading-relaxed space-y-1.5">
+              <p>
+                Leaving the test tab or switching windows is strictly monitored.
+              </p>
+              <p className="font-bold text-rose-800">
+                {tabSwitchCount >= maxTabSwitches
+                  ? 'FINAL WARNING: One more tab switch will immediately end and auto-submit your test!'
+                  : `You have ${maxTabSwitches - tabSwitchCount} warning(s) remaining. Exceeding ${maxTabSwitches} tab switches will automatically end and submit your test.`}
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowTabWarningModal(false);
+                  void enterFullscreen();
+                }}
+                className="w-full py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-sm transition-colors cursor-pointer"
+              >
+                I Understand — Return to Assessment
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Fullscreen Proctoring Gate Overlay ── */}
+      {requireFullscreen && !isFullscreen && !showTabWarningModal && !showSubmitModal && !isSubmitting && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl border border-slate-200 text-center space-y-5 animate-in fade-in zoom-in-95">
+            <div className="w-14 h-14 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center mx-auto">
+              <Maximize2 className="w-7 h-7" />
+            </div>
+
+            <div className="space-y-1.5">
+              <h3 className="text-lg font-extrabold text-slate-900">
+                Full-Screen Mode Required
+              </h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                This assessment must be taken in full-screen proctored mode. Switching tabs more than{' '}
+                <strong>{maxTabSwitches} times</strong> will automatically end and submit your test.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-center gap-4 text-[11px] font-semibold text-slate-600 bg-slate-50 border border-slate-200/80 rounded-2xl py-2.5 px-4">
+              <span className="flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                Full-Screen Lock
+              </span>
+              <span>•</span>
+              <span className="flex items-center gap-1.5">
+                <EyeOff className="w-4 h-4 text-amber-600" />
+                Tab Switches: {tabSwitchCount}/{maxTabSwitches}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={enterFullscreen}
+              className="w-full inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-[#0b5c39] hover:bg-[#094d2f] text-white text-xs font-bold shadow-md hover:shadow-lg transition-all cursor-pointer"
+            >
+              <Maximize2 className="w-4 h-4" />
+              <span>Enter Full-Screen to Continue Test</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Auto-Termination Overlay ── */}
+      {autoTerminatedReason && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/90 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border-2 border-rose-300 text-center space-y-4">
+            <Loader2 className="w-10 h-10 text-rose-600 animate-spin mx-auto" />
+            <h3 className="text-base font-extrabold text-slate-900">
+              Auto-Submitting Assessment
+            </h3>
+            <p className="text-xs text-rose-700 font-semibold">{autoTerminatedReason}</p>
           </div>
         </div>
       )}

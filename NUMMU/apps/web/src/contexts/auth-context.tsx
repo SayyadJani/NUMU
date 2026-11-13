@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { authService, type LoginPayload, type RegisterPayload } from '@/services/auth.service';
+import { clearProfileCache } from '@/services/profile-service';
 import type { User } from '@numu/types';
 
 interface AuthContextValue {
@@ -39,6 +40,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = useCallback(
     async (payload: LoginPayload): Promise<User> => {
+      clearProfileCache();
       const response = await authService.login(payload);
       setUser(response.user);
       return response.user;
@@ -48,6 +50,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const register = useCallback(
     async (payload: RegisterPayload): Promise<User> => {
+      clearProfileCache();
       const response = await authService.register(payload);
       setUser(response.user);
       return response.user;
@@ -57,21 +60,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     try {
+      clearProfileCache();
       await authService.logout();
     } catch (err) {
       console.warn('Logout API call failed, clearing local session state', err);
     } finally {
+      clearProfileCache();
       setUser(null);
+      if (typeof window !== 'undefined') {
+        window.location.href = '/login';
+      }
     }
   }, []);
 
   const logoutAll = useCallback(async () => {
     try {
+      clearProfileCache();
       await authService.logoutAll();
     } catch (err) {
       console.warn('Logout all API call failed, clearing local session state', err);
     } finally {
+      clearProfileCache();
       setUser(null);
+      if (typeof window !== 'undefined') {
+        window.location.href = '/login';
+      }
     }
   }, []);
 

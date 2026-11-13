@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="800" height="600" fill="none">
+  <defs>
+    <filter id="cardShadow" x="-10%" y="-10%" width="125%" height="130%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#082c1c" flood-opacity="0.14"/>
+    </filter>
+    <filter id="subShadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#082c1c" flood-opacity="0.10"/>
+    </filter>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#082c1c" stroke-width="1" stroke-opacity="0.04"/>
+    </pattern>
+  </defs>
+
+  <!-- Background -->
+  <rect width="800" height="600" fill="#fbfaf7"/>
+  <rect width="800" height="600" fill="url(#grid)"/>
+
+  <!-- Back Code Editor Card -->
+  <g filter="url(#subShadow)">
+    <rect x="90" y="75" width="460" height="310" rx="20" fill="#082c1c"/>
+    <rect x="90" y="75" width="460" height="44" rx="20" fill="#0d3b27"/>
+    <circle cx="118" cy="97" r="6" fill="#ff5f56"/>
+    <circle cx="138" cy="97" r="6" fill="#ffbd2e"/>
+    <circle cx="158" cy="97" r="6" fill="#27c93f"/>
+    <text x="184" y="102" fill="#9ca3af" font-family="monospace" font-size="13">search_rotated_array.cpp — Judge0</text>
+
+    <!-- Code lines -->
+    <text x="118" y="152" fill="#6ee7b7" font-family="monospace" font-size="14">int</text>
+    <text x="152" y="152" fill="#ffffff" font-family="monospace" font-size="14">search(vector&lt;int&gt;&amp; nums, int t) {</text>
+    <text x="136" y="180" fill="#cff07c" font-family="monospace" font-size="14">int lo = 0, hi = nums.size() - 1;</text>
+    <text x="136" y="208" fill="#93c5fd" font-family="monospace" font-size="14">while (lo &lt;= hi) {</text>
+    <text x="156" y="236" fill="#e5e7eb" font-family="monospace" font-size="14">int mid = lo + (hi - lo) / 2;</text>
+    <text x="156" y="264" fill="#cff07c" font-family="monospace" font-size="14">if (nums[mid] == t) return mid;</text>
+    <text x="136" y="292" fill="#93c5fd" font-family="monospace" font-size="14">}</text>
+    <text x="118" y="320" fill="#ffffff" font-family="monospace" font-size="14">}</text>
+  </g>
+
+  <!-- Front Revision Note Card -->
+  <g filter="url(#cardShadow)">
+    <rect x="230" y="185" width="480" height="335" rx="24" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.5"/>
+
+    <!-- Bookmark Ribbon -->
+    <path d="M645 185 H678 V252 L661.5 238 L645 252 Z" fill="#10b981"/>
+
+    <!-- Header Pill -->
+    <rect x="266" y="218" width="168" height="30" rx="15" fill="#e2f3ea"/>
+    <circle cx="284" cy="233" r="5" fill="#10b981"/>
+    <text x="298" y="238" fill="#082c1c" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="700">SAVED REVISION NOTE</text>
+
+    <!-- Title -->
+    <text x="266" y="284" fill="#082c1c" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="800">Rotated Binary Search Intuition</text>
+
+    <!-- Highlighted Key Insight Box -->
+    <rect x="266" y="304" width="408" height="72" rx="14" fill="#cff07c" fill-opacity="0.45" stroke="#10b981" stroke-opacity="0.3"/>
+    <rect x="266" y="304" width="6" height="72" rx="3" fill="#082c1c"/>
+    <text x="286" y="333" fill="#082c1c" font-family="system-ui, -apple-system, sans-serif" font-size="15" font-weight="700">Key Pattern: One half is always sorted</text>
+    <text x="286" y="357" fill="#1f4d36" font-family="system-ui, -apple-system, sans-serif" font-size="13.5" font-weight="500">Check if nums[lo] &lt;= nums[mid] before narrowing bounds.</text>
+
+    <!-- Complexity & Status Pills -->
+    <rect x="266" y="400" width="142" height="36" rx="10" fill="#082c1c"/>
+    <text x="284" y="423" fill="#cff07c" font-family="monospace" font-size="13" font-weight="700">Time: O(log N)</text>
+
+    <rect x="420" y="400" width="136" height="36" rx="10" fill="#f3f4f6"/>
+    <text x="438" y="423" fill="#082c1c" font-family="monospace" font-size="13" font-weight="700">Space: O(1)</text>
+
+    <rect x="568" y="400" width="106" height="36" rx="10" fill="#e2f3ea"/>
+    <text x="586" y="423" fill="#082c1c" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="700">★ Bookmarked</text>
+
+    <!-- Footer Line -->
+    <line x1="266" y1="458" x2="674" y2="458" stroke="#e5e7eb" stroke-width="1"/>
+    <text x="266" y="486" fill="#6b7280" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="500">Synced with Judge0 submission #412 · Ready for quick revision</text>
+  </g>
+</svg>
+

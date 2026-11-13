@@ -35,10 +35,13 @@ import {
   ListFilter,
   Search,
   X,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { dsaService } from '@/services/dsa.service';
 import { submissionsService } from '@/services/submissions.service';
 import { useAuth } from '@/contexts/auth-context';
+import { useTheme } from '@/contexts/theme-context';
 import type {
   ProblemDetail,
   ProblemListItem,
@@ -125,6 +128,7 @@ export default function ProblemDetailPage({ params }: ProblemPageProps) {
   const resolvedParams = use(params);
   const slug = resolvedParams.slug;
   const { user, isAuthenticated } = useAuth();
+  const { isDark, toggleTheme } = useTheme();
 
   const [problem, setProblem] = useState<ProblemDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -739,10 +743,22 @@ export default function ProblemDetailPage({ params }: ProblemPageProps) {
         </div>
 
         {problem && (
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-slate-500 hidden md:inline">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500 hidden md:inline mr-1">
               Acceptance: <span className="font-semibold text-slate-700">{problem.acceptanceRate.toFixed(1)}%</span>
             </span>
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+              title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+            >
+              {isDark ? (
+                <Sun className="w-4 h-4 text-amber-400" />
+              ) : (
+                <Moon className="w-4 h-4" />
+              )}
+            </button>
             <button
               onClick={() => setIsFullscreen(!isFullscreen)}
               className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"

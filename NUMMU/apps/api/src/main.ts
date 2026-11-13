@@ -27,9 +27,15 @@ async function bootstrap() {
     }),
   );
 
-  // Enable CORS with credentials
-  const corsOrigin = process.env['CORS_ORIGIN'] || 'http://localhost:3000';
-  const allowedOrigins = corsOrigin.split(',').map((o) => o.trim());
+  // Enable CORS with credentials (supports both student web app on :3000 and admin console on :3001)
+  const corsOrigin = process.env['CORS_ORIGIN'] || 'http://localhost:3000,http://localhost:3001';
+  const allowedOrigins = Array.from(
+    new Set([
+      ...corsOrigin.split(',').map((o) => o.trim()),
+      'http://localhost:3000',
+      'http://localhost:3001',
+    ]),
+  );
   app.enableCors({
     origin: allowedOrigins,
     credentials: true,

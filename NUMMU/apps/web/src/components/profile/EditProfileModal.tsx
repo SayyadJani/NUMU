@@ -10,10 +10,13 @@ import {
   Sparkles,
   Save,
   Globe,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { GithubIcon, LinkedinIcon } from '@/components/ui/icons';
 import { Spinner } from '@/components/ui/loading-state';
 import { CharacterAvatar, type CharacterStickerType } from '@/components/ui/character-avatar';
+import { useTheme } from '@/contexts/theme-context';
 import type { UserProfile, SocialLink } from '@/types/profile';
 
 const AVATAR_OPTIONS: { id: CharacterStickerType; label: string; desc: string }[] = [
@@ -60,6 +63,7 @@ export function EditProfileModal({
   const [tags, setTags] = useState<string[]>(profile.tags || []);
   const [newTagInput, setNewTagInput] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const { isDark, toggleTheme, setTheme } = useTheme();
 
   if (!isOpen) return null;
 
@@ -164,6 +168,69 @@ export function EditProfileModal({
 
         {/* Scrollable Form Body */}
         <form onSubmit={handleSubmit} className="p-6 space-y-5 overflow-y-auto flex-1">
+          {/* Application Appearance / Full-App Dark Mode Toggle */}
+          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center shrink-0">
+                {isDark ? (
+                  <Moon className="w-4 h-4 text-emerald-500" />
+                ) : (
+                  <Sun className="w-4 h-4 text-amber-500" />
+                )}
+              </div>
+              <div>
+                <div className="text-xs font-extrabold text-slate-900">
+                  Full Application Dark Mode
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Enable dark theme across Dashboard, DSA Curriculum, Coding IDE, and Profile.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setTheme('light')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  !isDark
+                    ? 'bg-[#0b5c39] text-white shadow-2xs'
+                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <Sun className="w-3.5 h-3.5" />
+                <span>Light</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setTheme('dark')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  isDark
+                    ? 'bg-[#0b5c39] text-white shadow-2xs'
+                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <Moon className="w-3.5 h-3.5" />
+                <span>Dark</span>
+              </button>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isDark}
+                onClick={toggleTheme}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ml-1 ${
+                  isDark ? 'bg-emerald-600' : 'bg-slate-300'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                    isDark ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+
           {/* Character Sticker Selection */}
           <div>
             <label className="block text-xs font-bold text-slate-800 mb-1">

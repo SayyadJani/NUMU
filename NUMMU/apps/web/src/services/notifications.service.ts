@@ -1,79 +1,58 @@
 /**
  * Notifications Service Layer
- * Abstracts user notifications, categories, and read status mutations.
+ * Fully functional client connecting to NestJS NotificationsModule endpoints.
  */
 
-import { envConfig } from '@/lib/config/env';
 import { apiClient } from '@/lib/api/api-client';
 import { ENDPOINTS } from '@/lib/api/endpoints';
-import {
-  DUMMY_NOTIFICATIONS,
-  groupNotifications,
-  UNREAD_SUMMARY,
-} from '@/data/notifications';
+import { groupNotifications } from '@/data/notifications';
 import type { Notification, NotificationGroup, UnreadSummaryItem } from '@/types/notifications';
 
-export interface NotificationsService {
-  getNotifications(): Promise<Notification[]>;
-  getGroups(): Promise<NotificationGroup[]>;
-  getUnreadSummary(): Promise<UnreadSummaryItem[]>;
-  markAsRead(id: string): Promise<Notification[]>;
-  markAllAsRead(): Promise<Notification[]>;
-}
-
-class MockNotificationsService implements NotificationsService {
-  private notifications = [...DUMMY_NOTIFICATIONS];
-
-  async getNotifications(): Promise<Notification[]> {
-    await new Promise((res) => setTimeout(res, 30));
-    return this.notifications;
-  }
-
-  async getGroups(): Promise<NotificationGroup[]> {
-    await new Promise((res) => setTimeout(res, 30));
-    return groupNotifications(this.notifications);
-  }
-
-  async getUnreadSummary(): Promise<UnreadSummaryItem[]> {
-    await new Promise((res) => setTimeout(res, 30));
-    return UNREAD_SUMMARY;
-  }
-
-  async markAsRead(id: string): Promise<Notification[]> {
-    this.notifications = this.notifications.map((n) =>
-      n.id === id ? { ...n, isRead: true } : n
-    );
-    return this.notifications;
-  }
-
-  async markAllAsRead(): Promise<Notification[]> {
-    this.notifications = this.notifications.map((n) => ({ ...n, isRead: true }));
-    return this.notifications;
-  }
-}
-
-class ApiNotificationsService implements NotificationsService {
+export class NotificationsApiService {
+  /**
+   * Fetch current user's notifications.
+   */
   async getNotifications(): Promise<Notification[]> {
     return apiClient.get<Notification[]>(ENDPOINTS.NOTIFICATIONS.LIST);
   }
 
+  /**
+   * Fetch grouped notifications (Today, Yesterday, Older).
+   */
   async getGroups(): Promise<NotificationGroup[]> {
-    return apiClient.get<NotificationGroup[]>(`${ENDPOINTS.NOTIFICATIONS.LIST}/groups`);
+    try {
+      const list = await this.getNotifications();
+      return groupNotifications(list);
+    } catch {
+      return [];
+    }
   }
 
-  async getUnreadSummary(): Promise<UnreadSummaryItem[]> {
-    return apiClient.get<UnreadSummaryItem[]>(`${ENDPOINTS.NOTIFICATIONS.LIST}/summary`);
+  /**
+   * Get unread badge count.
+   */
+  async getUnreadCount(): Promise<number> {
+    try {
+      const res = await apiClient.get<{ unreadCount: number }>(ENDPOINTS.NOTIFICATIONS.UNREAD_COUNT);
+      return res.unreadCount ?? 0;
+    } catch {
+      return 0;
+    }
   }
 
-  async markAsRead(id: string): Promise<Notification[]> {
-    return apiClient.patch<Notification[]>(ENDPOINTS.NOTIFICATIONS.MARK_READ(id));
+  /**
+   * Mark a single notification as read.
+   */
+  async markAsRead(id: string): Promise<any> {
+    return apiClient.post(ENDPOINTS.NOTIFICATIONS.MARK_READ(id));
   }
 
-  async markAllAsRead(): Promise<Notification[]> {
-    return apiClient.post<Notification[]>(ENDPOINTS.NOTIFICATIONS.MARK_ALL_READ);
+  /**
+   * Mark all visible notifications as read.
+   */
+  async markAllAsRead(): Promise<any> {
+    return apiClient.post(ENDPOINTS.NOTIFICATIONS.MARK_ALL_READ);
   }
 }
 
-export const notificationsService: NotificationsService = envConfig.useMocks
-  ? new MockNotificationsService()
-  : new ApiNotificationsService();
+export const notificationsService = new NotificationsApiService();

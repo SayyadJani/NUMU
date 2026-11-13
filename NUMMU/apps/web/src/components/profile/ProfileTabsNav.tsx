@@ -48,12 +48,12 @@ export function ProfileTabsNav({
   };
 
   return (
-    <div className="relative bg-white rounded-2xl border border-slate-200/90 shadow-sm p-1.5 sm:p-2 group">
+    <div className="relative bg-white dark:bg-[#0b2b1e] rounded-2xl border border-slate-200/90 dark:border-emerald-900/40 shadow-sm p-1.5 sm:p-2 group transition-colors">
       {/* Scroll Left Button */}
       {canScrollLeft && (
         <button
           onClick={() => scroll('left')}
-          className="absolute left-1 top-1/2 -translate-y-1/2 z-10 w-7 h-7 rounded-full bg-white/95 border border-slate-200 shadow-md flex items-center justify-center text-slate-600 hover:text-slate-900 transition-all hover:scale-105"
+          className="absolute left-1 top-1/2 -translate-y-1/2 z-10 w-7 h-7 rounded-full bg-white/95 dark:bg-[#082218] border border-slate-200 dark:border-emerald-900/40 shadow-md flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-all hover:scale-105"
           aria-label="Scroll left"
         >
           <ChevronLeft className="w-4 h-4" />
@@ -74,15 +74,15 @@ export function ProfileTabsNav({
             <button
               key={tab.id}
               onClick={() => onSelectTab(tab.id)}
-              className={`inline-flex items-center gap-2 px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold whitespace-nowrap transition-all select-none ${
+              className={`inline-flex items-center gap-2 px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold whitespace-nowrap transition-all select-none cursor-pointer ${
                 isActive
-                  ? 'bg-[#0b5c39] text-white shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
+                  ? 'bg-[#0b5c39] text-white shadow-sm ring-1 ring-emerald-600/30'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100/80 dark:hover:bg-[#082218]'
               }`}
             >
               <Icon
                 className={`w-4 h-4 shrink-0 ${
-                  isActive ? 'text-white' : 'text-slate-400'
+                  isActive ? 'text-white' : 'text-slate-400 dark:text-emerald-500/70'
                 }`}
               />
               <span>{tab.label}</span>
@@ -92,7 +92,7 @@ export function ProfileTabsNav({
                   className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full transition-colors ${
                     isActive
                       ? 'bg-white/20 text-white'
-                      : 'bg-slate-100 text-slate-500'
+                      : 'bg-slate-100 dark:bg-[#082218] text-slate-500 dark:text-emerald-400 border border-transparent dark:border-emerald-900/40'
                   }`}
                 >
                   {tab.badge}
@@ -107,7 +107,7 @@ export function ProfileTabsNav({
       {canScrollRight && (
         <button
           onClick={() => scroll('right')}
-          className="absolute right-1 top-1/2 -translate-y-1/2 z-10 w-7 h-7 rounded-full bg-white/95 border border-slate-200 shadow-md flex items-center justify-center text-slate-600 hover:text-slate-900 transition-all hover:scale-105"
+          className="absolute right-1 top-1/2 -translate-y-1/2 z-10 w-7 h-7 rounded-full bg-white/95 dark:bg-[#082218] border border-slate-200 dark:border-emerald-900/40 shadow-md flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-all hover:scale-105"
           aria-label="Scroll right"
         >
           <ChevronRight className="w-4 h-4" />

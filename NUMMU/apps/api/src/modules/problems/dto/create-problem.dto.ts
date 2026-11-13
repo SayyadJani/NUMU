@@ -8,10 +8,49 @@ import {
   IsObject,
   ValidateNested,
   IsInt,
+  IsBoolean,
   Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { Difficulty, ContentStatus } from '@prisma/client';
+import { Difficulty, ContentStatus, ExecutionMode } from '@prisma/client';
+
+export class ProblemTestCaseInputDto {
+  @ApiProperty({ example: '[2,7,11,15]\n9' })
+  @IsString()
+  @IsNotEmpty()
+  input!: string;
+
+  @ApiProperty({ example: '[0,1]' })
+  @IsString()
+  @IsNotEmpty()
+  expectedOutput!: string;
+
+  @ApiPropertyOptional({ default: true })
+  @IsBoolean()
+  @IsOptional()
+  isHidden?: boolean = true;
+
+  @ApiPropertyOptional({ default: 0 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  orderIndex?: number;
+
+  @ApiPropertyOptional({ default: 2000 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(100)
+  @IsOptional()
+  timeLimitMs?: number = 2000;
+
+  @ApiPropertyOptional({ default: 262144 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(16384)
+  @IsOptional()
+  memoryLimitKb?: number = 262144;
+}
 
 export class ProblemExampleInputDto {
   @ApiProperty({ example: 'nums = [2,7,11,15], target = 9' })
@@ -101,4 +140,16 @@ export class CreateProblemDto {
   @Type(() => ProblemExampleInputDto)
   @IsOptional()
   examples?: ProblemExampleInputDto[];
+
+  @ApiPropertyOptional({ type: [ProblemTestCaseInputDto], description: 'Judge test cases (sample & hidden)' })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProblemTestCaseInputDto)
+  @IsOptional()
+  testCases?: ProblemTestCaseInputDto[];
+
+  @ApiPropertyOptional({ enum: ExecutionMode, default: ExecutionMode.FUNCTION })
+  @IsEnum(ExecutionMode)
+  @IsOptional()
+  executionMode?: ExecutionMode;
 }

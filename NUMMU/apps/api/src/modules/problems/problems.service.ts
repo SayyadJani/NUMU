@@ -37,7 +37,9 @@ export class ProblemsService {
 
     const isPrivileged =
       currentUser &&
-      (currentUser.role === Role.TRAINER || currentUser.role === Role.PLATFORM_ADMIN);
+      (currentUser.role === Role.TRAINER ||
+        currentUser.role === Role.PLATFORM_ADMIN ||
+        currentUser.role === Role.COLLEGE_ADMIN);
 
     // Build Prisma where clause
     const where: Prisma.ProblemWhereInput = {};
@@ -104,6 +106,13 @@ export class ProblemsService {
           status: true,
           acceptanceRate: true,
           createdAt: true,
+          _count: {
+            select: {
+              testCases: true,
+              submissions: true,
+              examples: true,
+            },
+          },
           topics: {
             select: {
               isPrimary: true,
@@ -133,6 +142,9 @@ export class ProblemsService {
           ? { slug: primaryTopicObj.slug, name: primaryTopicObj.name }
           : null,
         topics: p.topics.map((t) => ({ slug: t.topic.slug, name: t.topic.name })),
+        testCasesCount: p._count?.testCases ?? 0,
+        submissionsCount: p._count?.submissions ?? 0,
+        examplesCount: p._count?.examples ?? 0,
         createdAt: p.createdAt,
       };
     });
@@ -177,6 +189,9 @@ export class ProblemsService {
             order: true,
           },
         },
+        testCases: {
+          orderBy: { orderIndex: 'asc' },
+        },
         author: {
           select: {
             id: true,
@@ -200,14 +215,16 @@ export class ProblemsService {
       },
     });
 
-    if (!problem || problem.status === ContentStatus.ARCHIVED) {
-      throw new NotFoundException(`Problem with slug "${slug}" not found`);
-    }
-
     // Publication check
     const isPrivileged =
       currentUser &&
-      (currentUser.role === Role.TRAINER || currentUser.role === Role.PLATFORM_ADMIN);
+      (currentUser.role === Role.TRAINER ||
+        currentUser.role === Role.PLATFORM_ADMIN ||
+        currentUser.role === Role.COLLEGE_ADMIN);
+
+    if (!problem || (problem.status === ContentStatus.ARCHIVED && !isPrivileged)) {
+      throw new NotFoundException(`Problem with slug "${slug}" not found`);
+    }
 
     if (problem.status === ContentStatus.DRAFT && !isPrivileged) {
       // Disclose nothing to unprivileged users to mitigate enumeration
@@ -220,6 +237,7 @@ export class ProblemsService {
       title: problem.title,
       difficulty: problem.difficulty,
       status: problem.status,
+      executionMode: problem.executionMode,
       description: problem.description,
       constraints: problem.constraints,
       hints: problem.hints,
@@ -233,6 +251,7 @@ export class ProblemsService {
         isPrimary: pt.isPrimary ?? false,
       })),
       examples: problem.examples || [],
+      ...(isPrivileged && { testCases: problem.testCases || [] }),
       author: problem.author || { id: problem.authorId, name: null, username: null },
       createdAt: problem.createdAt,
       updatedAt: problem.updatedAt,
@@ -275,6 +294,7 @@ export class ProblemsService {
           hints: dto.hints || [],
           editorial: dto.editorial?.trim() || null,
           boilerplate: (dto.boilerplate as Prisma.InputJsonValue) || {},
+          ...(dto.executionMode && { executionMode: dto.executionMode }),
           authorId,
         },
       });
@@ -301,6 +321,24 @@ export class ProblemsService {
               output: ex.output.trim(),
               explanation: ex.explanation?.trim() || null,
               order: ex.order ?? i + 1,
+            },
+          });
+        }
+      }
+
+      // Create judge test cases (sample + hidden)
+      if (dto.testCases && dto.testCases.length > 0) {
+        for (let i = 0; i < dto.testCases.length; i++) {
+          const tc = dto.testCases[i]!;
+          await tx.problemTestCase.create({
+            data: {
+              problemId: problem.id,
+              input: tc.input,
+              expectedOutput: tc.expectedOutput,
+              isHidden: tc.isHidden ?? true,
+              orderIndex: tc.orderIndex ?? i,
+              timeLimitMs: tc.timeLimitMs ?? 2000,
+              memoryLimitKb: tc.memoryLimitKb ?? 262144,
             },
           });
         }
@@ -396,6 +434,25 @@ export class ProblemsService {
               output: ex.output.trim(),
               explanation: ex.explanation?.trim() || null,
               order: ex.order ?? i + 1,
+            },
+          });
+        }
+      }
+
+      // Update judge test cases if provided
+      if (dto.testCases !== undefined) {
+        await tx.problemTestCase.deleteMany({ where: { problemId: id } });
+        for (let i = 0; i < dto.testCases.length; i++) {
+          const tc = dto.testCases[i]!;
+          await tx.problemTestCase.create({
+            data: {
+              problemId: id,
+              input: tc.input,
+              expectedOutput: tc.expectedOutput,
+              isHidden: tc.isHidden ?? true,
+              orderIndex: tc.orderIndex ?? i,
+              timeLimitMs: tc.timeLimitMs ?? 2000,
+              memoryLimitKb: tc.memoryLimitKb ?? 262144,
             },
           });
         }

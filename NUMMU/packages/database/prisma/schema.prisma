@@ -94,6 +94,8 @@ model User {
   xpTransactions      XpTransaction[]
   userBadges          UserBadge[]
   notes               Note[]
+  notifications       Notification[]       @relation("UserNotifications")
+  notificationReads   NotificationRead[]   @relation("UserReadNotifications")
   createdAt           DateTime             @default(now()) @map("created_at")
   updatedAt           DateTime             @updatedAt @map("updated_at")
 
@@ -184,6 +186,7 @@ model Organization {
   description String?
   logoUrl     String?              @map("logo_url")
   members     OrganizationMember[]
+  curatedProblems CuratedPracticeProblem[]
   createdAt   DateTime             @default(now()) @map("created_at")
   updatedAt   DateTime             @updatedAt @map("updated_at")
 
@@ -247,6 +250,8 @@ model Problem {
   submissions    Submission[]
   testAssignments TestQuestionAssignment[]
   testAnswers    TestAnswer[]
+  dailySchedules DailyChallengeSchedule[]
+  curatedEntries CuratedPracticeProblem[]
   createdAt      DateTime         @default(now()) @map("created_at")
   updatedAt      DateTime         @updatedAt @map("updated_at")
 
@@ -406,6 +411,11 @@ model Test {
   status          ContentStatus            @default(DRAFT)
   startTime       DateTime?                @map("start_time")
   endTime         DateTime?                @map("end_time")
+  // Proctoring: attempt is auto-submitted once tab switches exceed this limit
+  maxTabSwitches    Int                    @default(3) @map("max_tab_switches")
+  requireFullscreen Boolean                @default(true) @map("require_fullscreen")
+  disableCopyPaste  Boolean                @default(true) @map("disable_copy_paste")
+  isFeaturedOnDashboard Boolean            @default(false) @map("is_featured_on_dashboard")
   authorId        String?                  @map("author_id")
   author          User?                    @relation("AuthoredTests", fields: [authorId], references: [id], onDelete: SetNull)
   questions       TestQuestionAssignment[]
@@ -446,6 +456,12 @@ model TestAttempt {
   percentage      Float             @default(0.0)
   passed          Boolean           @default(false)
   currentQuestion Int               @default(0) @map("current_question")
+  // Proctoring counters (server authoritative)
+  tabSwitchCount      Int             @default(0) @map("tab_switch_count")
+  fullscreenExitCount Int             @default(0) @map("fullscreen_exit_count")
+  autoSubmitted       Boolean         @default(false) @map("auto_submitted")
+  terminationReason   String?         @map("termination_reason")
+  violations      TestViolation[]
   answers         TestAnswer[]
   createdAt       DateTime          @default(now()) @map("created_at")
   updatedAt       DateTime          @updatedAt @map("updated_at")
@@ -453,6 +469,22 @@ model TestAttempt {
   @@unique([testId, userId])
   @@index([userId, status])
   @@map("test_attempts")
+}
+
+enum TestViolationType {
+  TAB_SWITCH
+  FULLSCREEN_EXIT
+}
+
+model TestViolation {
+  id         String            @id @default(cuid())
+  attemptId  String            @map("attempt_id")
+  attempt    TestAttempt       @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  type       TestViolationType
+  occurredAt DateTime          @default(now()) @map("occurred_at")
+
+  @@index([attemptId, occurredAt])
+  @@map("test_violations")
 }
 
 model TestAnswer {
@@ -496,4 +528,262 @@ model Note {
   @@index([userId, isPinned])
   @@map("notes")
 }
+
+// ─────────────────────────────────────────────
+// DSA Hub Widget Management
+// ─────────────────────────────────────────────
+
+model DailyChallengeSchedule {
+  id           String   @id @default(cuid())
+  date         DateTime @unique @db.Date
+  problemId    String   @map("problem_id")
+  problem      Problem  @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  xpBonus      Int      @default(50) @map("xp_bonus")
+  instructions String?  @db.Text
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([date, isActive])
+  @@map("daily_challenge_schedules")
+}
+
+model CuratedPracticeProblem {
+  id             String        @id @default(cuid())
+  problemId      String        @map("problem_id")
+  problem        Problem       @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  orderIndex     Int           @default(0) @map("order_index")
+  organizationId String?       @map("organization_id")
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  isPinned       Boolean       @default(false) @map("is_pinned")
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  @@unique([problemId, organizationId])
+  @@index([orderIndex])
+  @@map("curated_practice_problems")
+}
+
+// ─────────────────────────────────────────────
+// Development Track Management
+// ─────────────────────────────────────────────
+
+model DevTrack {
+  id          String       @id @default(cuid())
+  slug        String       @unique
+  title       String
+  description String?      @db.Text
+  icon        String       @default("Monitor")
+  colorTone   String       @default("emerald") @map("color_tone")
+  order       Int          @default(0)
+  projects    DevProject[]
+  modules     DevModule[]
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  @@map("dev_tracks")
+}
+
+model DevProject {
+  id             String         @id @default(cuid())
+  slug           String         @unique
+  title          String
+  description    String         @db.Text
+  trackId        String?        @map("track_id")
+  track          DevTrack?      @relation(fields: [trackId], references: [id], onDelete: SetNull)
+  stage          String         @default("planning")
+  totalSprints   Int            @default(5) @map("total_sprints")
+  techStack      String[]       @default([]) @map("tech_stack")
+  starterRepoUrl String?        @map("starter_repo_url")
+  demoUrl        String?        @map("demo_url")
+  xpReward       Int            @default(400) @map("xp_reward")
+  isOfficial     Boolean        @default(true) @map("is_official")
+  status         ContentStatus  @default(PUBLISHED)
+  milestones     DevMilestone[]
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  @@index([trackId, status])
+  @@map("dev_projects")
+}
+
+model DevModule {
+  id           String     @id @default(cuid())
+  trackId      String     @map("track_id")
+  track        DevTrack   @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  title        String
+  duration     String     @default("2 hrs")
+  difficulty   Difficulty @default(MEDIUM)
+  tags         String[]   @default([])
+  totalLessons Int        @default(5) @map("total_lessons")
+  order        Int        @default(0)
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  @@index([trackId, order])
+  @@map("dev_modules")
+}
+
+model DevMilestone {
+  id        String     @id @default(cuid())
+  projectId String     @map("project_id")
+  project   DevProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title     String
+  order     Int        @default(0)
+  createdAt DateTime   @default(now()) @map("created_at")
+
+  @@index([projectId, order])
+  @@map("dev_milestones")
+}
+
+// ─────────────────────────────────────────────
+// System Design Track Management
+// ─────────────────────────────────────────────
+
+enum SystemDesignCategory {
+  FUNDAMENTALS
+  HLD
+  LLD
+  CASE_STUDIES
+}
+
+model SystemDesignTopic {
+  id          String                 @id @default(cuid())
+  slug        String                 @unique
+  title       String
+  category    SystemDesignCategory   @default(FUNDAMENTALS)
+  description String?                @db.Text
+  order       Int                    @default(0)
+  questions   SystemDesignQuestion[]
+  createdAt   DateTime               @default(now()) @map("created_at")
+  updatedAt   DateTime               @updatedAt @map("updated_at")
+
+  @@index([category, order])
+  @@map("system_design_topics")
+}
+
+model SystemDesignQuestion {
+  id              String            @id @default(cuid())
+  topicId         String            @map("topic_id")
+  topic           SystemDesignTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  title           String
+  difficulty      Difficulty        @default(MEDIUM)
+  duration        String            @default("30 min")
+  architectureUrl String?           @map("architecture_url")
+  editorial       String?           @db.Text
+  order           Int               @default(0)
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  @@index([topicId, order])
+  @@map("system_design_questions")
+}
+
+// ─────────────────────────────────────────────
+// Core CS Track Management
+// ─────────────────────────────────────────────
+
+enum CoreSubjectType {
+  DBMS
+  OS
+  CN
+  OOPS
+}
+
+model CoreSubject {
+  id          String          @id @default(cuid())
+  slug        String          @unique
+  type        CoreSubjectType @unique
+  title       String
+  description String?         @db.Text
+  icon        String          @default("Database")
+  order       Int             @default(0)
+  topics      CoreTopic[]
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  @@map("core_subjects")
+}
+
+model CoreTopic {
+  id        String         @id @default(cuid())
+  subjectId String         @map("subject_id")
+  subject   CoreSubject    @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  slug      String         @unique
+  title     String
+  order     Int            @default(0)
+  questions CoreQuestion[]
+  createdAt DateTime       @default(now()) @map("created_at")
+  updatedAt DateTime       @updatedAt @map("updated_at")
+
+  @@index([subjectId, order])
+  @@map("core_topics")
+}
+
+model CoreQuestion {
+  id          String     @id @default(cuid())
+  topicId     String     @map("topic_id")
+  topic       CoreTopic  @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  title       String
+  difficulty  Difficulty @default(EASY)
+  explanation String?    @db.Text
+  order       Int        @default(0)
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  @@index([topicId, order])
+  @@map("core_questions")
+}
+
+enum NotificationCategory {
+  ALL
+  ASSIGNMENTS
+  CONTESTS
+  TESTS
+  PROJECTS
+  SYSTEM
+}
+
+enum NotificationTag {
+  Contest
+  Assignment
+  Project
+  Achievement
+  System
+  Test
+  Community
+}
+
+model Notification {
+  id          String               @id @default(cuid())
+  title       String
+  description String               @db.Text
+  category    NotificationCategory @default(SYSTEM)
+  tag         NotificationTag      @default(System)
+  linkUrl     String?              @map("link_url")
+  isBroadcast Boolean              @default(true) @map("is_broadcast")
+  targetRole  Role?                @map("target_role")
+  userId      String?              @map("user_id")
+  user        User?                @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+  reads       NotificationRead[]
+  createdAt   DateTime             @default(now()) @map("created_at")
+  updatedAt   DateTime             @updatedAt @map("updated_at")
+
+  @@index([category])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+model NotificationRead {
+  id             String       @id @default(cuid())
+  notificationId String       @map("notification_id")
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  userId         String       @map("user_id")
+  user           User         @relation("UserReadNotifications", fields: [userId], references: [id], onDelete: Cascade)
+  readAt         DateTime     @default(now()) @map("read_at")
+
+  @@unique([notificationId, userId])
+  @@index([userId])
+  @@map("notification_reads")
+}
+
 

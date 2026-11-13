@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="800" height="600" fill="none">
+  <defs>
+    <filter id="cardShadow" x="-10%" y="-10%" width="125%" height="130%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#082c1c" flood-opacity="0.16"/>
+    </filter>
+    <clipPath id="leftHalf">
+      <rect x="110" y="100" width="290" height="400" rx="24"/>
+    </clipPath>
+    <clipPath id="rightHalf">
+      <rect x="400" y="100" width="290" height="400" rx="24"/>
+    </clipPath>
+  </defs>
+
+  <rect width="800" height="600" fill="#f5f7fb"/>
+
+  <!-- Main Split Card Container -->
+  <g filter="url(#cardShadow)">
+    <rect x="110" y="100" width="580" height="400" rx="26" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+
+    <!-- LEFT: Light Mode Workspace -->
+    <g>
+      <path d="M136 100 H400 V500 H136 C121.64 500 110 488.36 110 474 V126 C110 111.64 121.64 100 136 100 Z" fill="#ffffff"/>
+      <rect x="142" y="134" width="128" height="32" rx="16" fill="#fef3c7"/>
+      <circle cx="162" cy="150" r="7" fill="#f59e0b"/>
+      <text x="178" y="155" fill="#92400e" font-family="system-ui, -apple-system, sans-serif" font-size="12.5" font-weight="800">LIGHT MODE</text>
+
+      <text x="142" y="206" fill="#082c1c" font-family="system-ui, -apple-system, sans-serif" font-size="21" font-weight="800">Daylight Focus</text>
+      <text x="142" y="230" fill="#6b7280" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="500">Crisp high-contrast reading</text>
+
+      <!-- Light UI Mock Card -->
+      <rect x="142" y="256" width="228" height="92" rx="14" fill="#f8faf9" stroke="#e5e7eb" stroke-width="1.5"/>
+      <text x="160" y="284" fill="#082c1c" font-family="system-ui, -apple-system, sans-serif" font-size="13.5" font-weight="700">1. Two Sum · Easy</text>
+      <rect x="160" y="300" width="160" height="10" rx="5" fill="#e5e7eb"/>
+      <rect x="160" y="300" width="124" height="10" rx="5" fill="#10b981"/>
+      <text x="160" y="332" fill="#10b981" font-family="monospace" font-size="12" font-weight="700">✓ Accepted (2ms)</text>
+
+      <rect x="142" y="366" width="228" height="92" rx="14" fill="#f8faf9" stroke="#e5e7eb" stroke-width="1.5"/>
+      <text x="160" y="394" fill="#082c1c" font-family="system-ui, -apple-system, sans-serif" font-size="13.5" font-weight="700">2. LRU Cache · Medium</text>
+      <rect x="160" y="410" width="160" height="10" rx="5" fill="#e5e7eb"/>
+      <rect x="160" y="410" width="102" height="10" rx="5" fill="#082c1c"/>
+      <text x="160" y="442" fill="#4b5563" font-family="monospace" font-size="12" font-weight="700">HashMap + DoublyList</text>
+    </g>
+
+    <!-- RIGHT: Dark Mode Workspace -->
+    <g>
+      <path d="M400 100 H664 C678.36 100 690 111.64 690 126 V474 C690 488.36 678.36 500 664 500 H400 V100 Z" fill="#082c1c"/>
+      <rect x="430" y="134" width="128" height="32" rx="16" fill="#11422c" stroke="#cff07c" stroke-opacity="0.35"/>
+      <circle cx="450" cy="150" r="7" fill="#cff07c"/>
+      <text x="466" y="155" fill="#cff07c" font-family="system-ui, -apple-system, sans-serif" font-size="12.5" font-weight="800">DARK MODE</text>
+
+      <text x="430" y="206" fill="#ffffff" font-family="system-ui, -apple-system, sans-serif" font-size="21" font-weight="800">Late-Night Coding</text>
+      <text x="430" y="230" fill="#9ca3af" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="500">Zero eye strain in Judge0 IDE</text>
+
+      <!-- Dark UI Mock Card -->
+      <rect x="430" y="256" width="228" height="92" rx="14" fill="#0f3d28" stroke="#1f5c3f" stroke-width="1.5"/>
+      <text x="448" y="284" fill="#ffffff" font-family="system-ui, -apple-system, sans-serif" font-size="13.5" font-weight="700">1. Two Sum · Easy</text>
+      <rect x="448" y="300" width="160" height="10" rx="5" fill="#082c1c"/>
+      <rect x="448" y="300" width="124" height="10" rx="5" fill="#cff07c"/>
+      <text x="448" y="332" fill="#cff07c" font-family="monospace" font-size="12" font-weight="700">✓ Accepted (2ms)</text>
+
+      <rect x="430" y="366" width="228" height="92" rx="14" fill="#0f3d28" stroke="#1f5c3f" stroke-width="1.5"/>
+      <text x="448" y="394" fill="#ffffff" font-family="system-ui, -apple-system, sans-serif" font-size="13.5" font-weight="700">2. LRU Cache · Medium</text>
+      <rect x="448" y="410" width="160" height="10" rx="5" fill="#082c1c"/>
+      <rect x="448" y="410" width="102" height="10" rx="5" fill="#10b981"/>
+      <text x="448" y="442" fill="#a7f3d0" font-family="monospace" font-size="12" font-weight="700">HashMap + DoublyList</text>
+    </g>
+
+    <!-- Center Divider & Theme Toggle Pill -->
+    <line x1="400" y1="100" x2="400" y2="500" stroke="#10b981" stroke-width="2" stroke-opacity="0.35"/>
+    <rect x="352" y="274" width="96" height="52" rx="26" fill="#cff07c" stroke="#082c1c" stroke-width="4"/>
+    <circle cx="378" cy="300" r="14" fill="#082c1c"/>
+    <circle cx="422" cy="300" r="10" fill="#082c1c" fill-opacity="0.25"/>
+  </g>
+</svg>
+

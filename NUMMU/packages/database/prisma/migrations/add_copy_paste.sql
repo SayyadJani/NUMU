@@ -1,0 +1,2 @@
+ALTER TABLE "tests" ADD COLUMN IF NOT EXISTS "disable_copy_paste" BOOLEAN NOT NULL DEFAULT true;
+
