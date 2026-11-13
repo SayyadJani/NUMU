@@ -400,7 +400,7 @@ export default function DashboardTestsPage() {
           {/* ══ Featured Cards: Weekly Contest + Live Test ════════════════════ */}
           <section className="grid grid-cols-1 lg:grid-cols-[1.25fr_1fr] gap-3">
             {/* ── Weekly Contest ── */}
-            <div className="bg-gradient-to-br from-[#fffdf6] via-white to-white rounded-2xl border border-slate-200/80 shadow-[0_1px_2px_rgba(15,23,42,0.04)] p-3.5 flex flex-col gap-3">
+            <div className="bg-white dark:bg-[#111827] rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-[0_1px_2px_rgba(15,23,42,0.04)] p-3.5 flex flex-col gap-3">
               <div className="flex flex-col sm:flex-row gap-3">
                 <div className="flex gap-3 flex-1 min-w-0">
                   <div className="w-12 h-12 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center shrink-0">
@@ -460,7 +460,7 @@ export default function DashboardTestsPage() {
 
               <button
                 onClick={() => showToast('Prize details coming soon 🎁')}
-                className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-amber-50/80 border border-amber-100 text-[11px] font-medium text-amber-800 hover:bg-amber-50 transition-colors cursor-pointer"
+                className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-amber-50/80 dark:bg-amber-950/30 border border-amber-100 dark:border-amber-900/40 text-[11px] font-medium text-amber-800 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/50 transition-colors cursor-pointer"
               >
                 <span className="flex items-center gap-2 min-w-0">
                   <Gift className="w-3.5 h-3.5 text-amber-600 shrink-0" />
@@ -472,7 +472,7 @@ export default function DashboardTestsPage() {
 
             {/* ── Live Test ── */}
             {liveTest ? (
-              <div className="bg-gradient-to-br from-[#f5f9ff] via-white to-white rounded-2xl border border-slate-200/80 shadow-[0_1px_2px_rgba(15,23,42,0.04)] p-3.5 flex flex-col gap-3">
+              <div className="bg-white dark:bg-[#111827] rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-[0_1px_2px_rgba(15,23,42,0.04)] p-3.5 flex flex-col gap-3">
                 <div className="flex gap-3">
                   <div className="w-12 h-12 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center shrink-0">
                     <FileText className="w-6 h-6 text-blue-600" />
@@ -515,7 +515,7 @@ export default function DashboardTestsPage() {
                     { icon: Code, label: 'Format', value: 'Coding + MCQ' },
                     { icon: Layers, label: 'Topics', value: (liveTest.syllabusTags || []).slice(0, 3).join(', ') || 'DSA & Algorithms' },
                   ].map(({ icon: Icon, label, value }) => (
-                    <div key={label} className="flex items-center gap-2.5 border border-slate-200/80 rounded-lg px-2.5 py-2 bg-white">
+                    <div key={label} className="flex items-center gap-2.5 border border-slate-200/80 dark:border-slate-800 rounded-lg px-2.5 py-2 bg-slate-50/70 dark:bg-slate-900/60">
                       <Icon className="w-4 h-4 text-slate-500 shrink-0" />
                       <div className="min-w-0">
                         <div className="text-[10px] text-slate-500">{label}</div>

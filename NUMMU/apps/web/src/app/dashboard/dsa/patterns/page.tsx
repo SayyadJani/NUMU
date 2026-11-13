@@ -243,6 +243,175 @@ export default function PatternsPage() {
     });
   }, [mergedTopics]);
 
+  const renderTopicTreeNode = (topic: TopicNodeData) => {
+    const isExpanded = Boolean(expandedTopics[topic.slug]);
+    const isComplete = topic.totalProblems > 0 && topic.solvedProblems >= topic.totalProblems;
+    const isStarted = topic.solvedProblems > 0;
+
+    const filteredProblems = topic.problems.filter((p) => {
+      if (difficultyFilter !== 'ALL' && p.difficulty !== difficultyFilter) return false;
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        return p.title.toLowerCase().includes(q) || topic.name.toLowerCase().includes(q);
+      }
+      return true;
+    });
+
+    return (
+      <div
+        key={topic.id}
+        className={`rounded-2xl border transition-all duration-300 overflow-hidden bg-white shadow-xs hover:shadow-md ${
+          isComplete
+            ? 'border-emerald-400 ring-2 ring-emerald-400/20'
+            : isStarted
+            ? 'border-amber-400 ring-2 ring-amber-400/20'
+            : 'border-slate-200 hover:border-slate-300'
+        }`}
+      >
+        {/* Node Header */}
+        <div
+          onClick={() => toggleTopicAccordion(topic.slug)}
+          className="p-4 sm:p-5 flex items-start justify-between gap-3 cursor-pointer select-none hover:bg-slate-50/80 transition-colors"
+        >
+          <div className="flex items-start gap-3 min-w-0">
+            <div
+              className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 font-mono font-black text-sm shadow-xs ${
+                isComplete
+                  ? 'bg-emerald-600 text-white'
+                  : isStarted
+                  ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                  : 'bg-slate-100 text-slate-700'
+              }`}
+            >
+              {isComplete ? '✓' : topic.order}
+            </div>
+
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <h3 className="text-sm sm:text-base font-extrabold text-slate-900 truncate">
+                  {topic.name}
+                </h3>
+                {isComplete ? (
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-emerald-100 text-emerald-800 border border-emerald-200">
+                    Mastered
+                  </span>
+                ) : isStarted ? (
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-amber-100 text-amber-800 border border-amber-200">
+                    In Progress
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-slate-100 text-slate-600">
+                    Ready
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5 line-clamp-1">
+                {topic.description}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="text-right">
+              <div className="text-xs font-black text-slate-800 tabular-nums">
+                {topic.solvedProblems}/{topic.totalProblems}
+              </div>
+              <div className="text-[10px] font-bold text-slate-400">
+                {topic.percentage}%
+              </div>
+            </div>
+            <div
+              className={`w-6 h-6 rounded-lg bg-slate-100 flex items-center justify-center transition-transform ${
+                isExpanded ? 'rotate-180 text-emerald-700' : 'text-slate-400'
+              }`}
+            >
+              <ChevronDown className="w-3.5 h-3.5" />
+            </div>
+          </div>
+        </div>
+
+        {/* Progress Bar Line */}
+        <div className="w-full h-1 bg-slate-100">
+          <div
+            className={`h-full transition-all duration-500 ${
+              isComplete ? 'bg-emerald-600' : 'bg-emerald-500'
+            }`}
+            style={{ width: `${topic.percentage}%` }}
+          />
+        </div>
+
+        {/* Problems list drawer */}
+        {isExpanded && (
+          <div className="p-3 sm:p-4 bg-slate-50/70 border-t border-slate-100 space-y-2">
+            <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold px-1 flex items-center justify-between">
+              <span>Curriculum Problems ({filteredProblems.length})</span>
+              <span className="text-emerald-700 font-semibold">{topic.solvedProblems} Solved</span>
+            </div>
+
+            {filteredProblems.length > 0 ? (
+              filteredProblems.map((p) => {
+                const isSolved = solvedSlugs.has(p.slug);
+                const isAttempted = !isSolved && attemptedSlugs.has(p.slug);
+
+                return (
+                  <div
+                    key={p.id}
+                    className="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-white border border-slate-200/80 hover:border-emerald-300 transition-colors shadow-2xs group"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      {isSolved ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      ) : isAttempted ? (
+                        <Clock className="w-4 h-4 text-amber-500 shrink-0" />
+                      ) : (
+                        <span className="w-4 h-4 rounded-full border-2 border-slate-300 shrink-0" />
+                      )}
+                      <Link
+                        href={`/dashboard/dsa/problems/${p.slug}` as React.ComponentProps<typeof Link>['href']}
+                        className="text-xs sm:text-sm font-bold text-slate-800 hover:text-emerald-700 transition-colors truncate"
+                      >
+                        {p.title}
+                      </Link>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span
+                        className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${
+                          p.difficulty === 'EASY'
+                            ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                            : p.difficulty === 'MEDIUM'
+                            ? 'text-amber-700 bg-amber-50 border-amber-200'
+                            : 'text-rose-700 bg-rose-50 border-rose-200'
+                        }`}
+                      >
+                        {p.difficulty}
+                      </span>
+
+                      <Link
+                        href={`/dashboard/dsa/problems/${p.slug}` as React.ComponentProps<typeof Link>['href']}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                          isSolved
+                            ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                            : 'bg-[#0b5c39] text-white hover:bg-[#08482c]'
+                        }`}
+                      >
+                        {isSolved ? 'Review' : 'Solve →'}
+                      </Link>
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="py-3 text-center text-xs text-slate-400">
+                No problems match current filters.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <main className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 max-w-7xl mx-auto w-full">
       {/* Breadcrumb */}
@@ -357,212 +526,220 @@ export default function PatternsPage() {
         <div className="flex-1 min-w-0">
           {viewMode === 'tree' ? (
             /* ════════════════════════════════════════════════════════
-               INTERACTIVE TREE ROADMAP VIEW
+               GENUINE BRANCHING SVG SKILL TREE
                ════════════════════════════════════════════════════════ */
-            <div className="space-y-8 relative">
-              {/* Central vertical trunk connector SVG */}
-              <div className="absolute top-8 bottom-8 left-1/2 -translate-x-1/2 w-1 bg-gradient-to-b from-emerald-400 via-emerald-600 to-indigo-600 rounded-full hidden md:block opacity-30 pointer-events-none" />
+            <div className="bg-slate-50/60 rounded-3xl border border-slate-200/90 p-4 sm:p-8 relative overflow-hidden shadow-xs">
+              {/* Subtle background grid pattern */}
+              <div className="absolute inset-0 bg-[radial-gradient(#94a3b830_1px,transparent_1px)] [background-size:20px_20px] pointer-events-none" />
 
-              {tiersWithTopics.map((tierDef, tierIdx) => {
-                return (
-                  <div key={tierDef.tier} className="relative z-10">
-                    {/* Tier Milestone Badge */}
-                    <div className="flex items-center justify-center mb-4">
-                      <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-slate-900 text-white shadow-md border border-slate-800">
-                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                        <span className="text-xs font-black tracking-wide">{tierDef.title}</span>
-                      </div>
-                    </div>
-
-                    {/* Tier Subtitle */}
-                    <div className="text-center text-[11px] text-slate-500 mb-4 max-w-md mx-auto">
-                      {tierDef.subtitle}
-                    </div>
-
-                    {/* Topic Nodes Grid for this Tier */}
-                    <div className={`grid gap-4 ${tierDef.topics.length > 1 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 max-w-xl mx-auto'}`}>
-                      {tierDef.topics.map((topic) => {
-                        const isExpanded = Boolean(expandedTopics[topic.slug]);
-                        const isComplete = topic.totalProblems > 0 && topic.solvedProblems >= topic.totalProblems;
-                        const isStarted = topic.solvedProblems > 0;
-
-                        // Filter topic problems by search and difficulty
-                        const filteredProblems = topic.problems.filter((p) => {
-                          if (difficultyFilter !== 'ALL' && p.difficulty !== difficultyFilter) return false;
-                          if (searchQuery.trim()) {
-                            const q = searchQuery.toLowerCase();
-                            return p.title.toLowerCase().includes(q) || topic.name.toLowerCase().includes(q);
-                          }
-                          return true;
-                        });
-
-                        return (
-                          <div
-                            key={topic.id}
-                            className={`rounded-2xl border transition-all duration-200 overflow-hidden bg-white ${
-                              isComplete
-                                ? 'border-emerald-300 shadow-md shadow-emerald-600/5'
-                                : isStarted
-                                ? 'border-amber-300 shadow-md shadow-amber-500/5 ring-1 ring-amber-200'
-                                : 'border-slate-200 shadow-xs hover:border-slate-300'
-                            }`}
-                          >
-                            {/* Topic Node Card Header */}
-                            <div
-                              onClick={() => toggleTopicAccordion(topic.slug)}
-                              className="p-4 sm:p-5 flex items-start justify-between gap-3 cursor-pointer select-none hover:bg-slate-50/70 transition-colors"
-                            >
-                              <div className="flex items-start gap-3 min-w-0">
-                                <div
-                                  className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 font-mono font-black text-sm shadow-xs ${
-                                    isComplete
-                                      ? 'bg-emerald-600 text-white'
-                                      : isStarted
-                                      ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                                      : 'bg-slate-100 text-slate-700'
-                                  }`}
-                                >
-                                  {isComplete ? '✓' : topic.order}
-                                </div>
-
-                                <div className="min-w-0">
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <h3 className="text-sm sm:text-base font-extrabold text-slate-900 truncate">
-                                      {topic.name}
-                                    </h3>
-                                    {isComplete ? (
-                                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                                        Mastered
-                                      </span>
-                                    ) : isStarted ? (
-                                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
-                                        In Progress
-                                      </span>
-                                    ) : (
-                                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600">
-                                        Ready
-                                      </span>
-                                    )}
-                                  </div>
-                                  <p className="text-xs text-slate-500 mt-0.5 line-clamp-1">
-                                    {topic.description}
-                                  </p>
-                                </div>
-                              </div>
-
-                              {/* Progress status & expand chevron */}
-                              <div className="flex items-center gap-2 shrink-0">
-                                <div className="text-right">
-                                  <div className="text-xs font-black text-slate-800 tabular-nums">
-                                    {topic.solvedProblems}/{topic.totalProblems}
-                                  </div>
-                                  <div className="text-[10px] font-bold text-slate-400">
-                                    {topic.percentage}%
-                                  </div>
-                                </div>
-                                <div
-                                  className={`w-6 h-6 rounded-lg bg-slate-100 flex items-center justify-center transition-transform ${
-                                    isExpanded ? 'rotate-180 text-emerald-700' : 'text-slate-400'
-                                  }`}
-                                >
-                                  <ChevronDown className="w-3.5 h-3.5" />
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Progress Bar Line */}
-                            <div className="w-full h-1 bg-slate-100">
-                              <div
-                                className={`h-full transition-all duration-500 ${
-                                  isComplete ? 'bg-emerald-600' : 'bg-emerald-500'
-                                }`}
-                                style={{ width: `${topic.percentage}%` }}
-                              />
-                            </div>
-
-                            {/* Leaf Problems Attached to Topic */}
-                            {isExpanded && (
-                              <div className="p-3 sm:p-4 bg-slate-50/70 border-t border-slate-100 space-y-2">
-                                <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold px-1">
-                                  Curriculum Practice Problems ({filteredProblems.length})
-                                </div>
-
-                                {filteredProblems.length > 0 ? (
-                                  filteredProblems.map((p, idx) => {
-                                    const isSolved = solvedSlugs.has(p.slug);
-                                    const isAttempted = !isSolved && attemptedSlugs.has(p.slug);
-
-                                    return (
-                                      <div
-                                        key={p.id}
-                                        className="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-white border border-slate-200/80 hover:border-emerald-300 transition-colors shadow-2xs group"
-                                      >
-                                        <div className="flex items-center gap-2.5 min-w-0">
-                                          {isSolved ? (
-                                            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                                          ) : isAttempted ? (
-                                            <Clock className="w-4 h-4 text-amber-500 shrink-0" />
-                                          ) : (
-                                            <span className="w-4 h-4 rounded-full border-2 border-slate-300 shrink-0" />
-                                          )}
-                                          <Link
-                                            href={`/dashboard/dsa/problems/${p.slug}` as React.ComponentProps<typeof Link>['href']}
-                                            className="text-xs sm:text-sm font-bold text-slate-800 hover:text-emerald-700 transition-colors truncate"
-                                          >
-                                            {p.title}
-                                          </Link>
-                                        </div>
-
-                                        <div className="flex items-center gap-2 shrink-0">
-                                          <span
-                                            className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${
-                                              p.difficulty === 'EASY'
-                                                ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
-                                                : p.difficulty === 'MEDIUM'
-                                                ? 'text-amber-700 bg-amber-50 border-amber-200'
-                                                : 'text-rose-700 bg-rose-50 border-rose-200'
-                                            }`}
-                                          >
-                                            {p.difficulty}
-                                          </span>
-
-                                          <Link
-                                            href={`/dashboard/dsa/problems/${p.slug}` as React.ComponentProps<typeof Link>['href']}
-                                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${
-                                              isSolved
-                                                ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                                                : 'bg-[#0b5c39] text-white hover:bg-[#08482c]'
-                                            }`}
-                                          >
-                                            {isSolved ? 'Solve Again' : 'Solve →'}
-                                          </Link>
-                                        </div>
-                                      </div>
-                                    );
-                                  })
-                                ) : (
-                                  <div className="py-3 text-center text-xs text-slate-400">
-                                    No problems match current filters.
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    {/* Branch connector arrow to next tier */}
-                    {tierIdx < tiersWithTopics.length - 1 && (
-                      <div className="flex justify-center my-4">
-                        <div className="w-7 h-7 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-xs shadow-xs border border-emerald-200">
-                          ↓
-                        </div>
-                      </div>
-                    )}
+              {/* ── Tier 0: Root Skill Apex ── */}
+              <div className="relative z-10 flex flex-col items-center">
+                <div className="inline-flex items-center gap-2.5 px-5 py-2.5 rounded-2xl bg-gradient-to-r from-slate-900 to-slate-800 text-white shadow-xl shadow-slate-900/10 border border-slate-700">
+                  <div className="w-6 h-6 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-xs">
+                    🌱
                   </div>
-                );
-              })}
+                  <div>
+                    <div className="text-[10px] uppercase font-black tracking-widest text-emerald-400">Roadmap Origin</div>
+                    <div className="text-xs font-black text-white">DSA Algorithmic Core</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Connector: Root -> Tier 1 (Diverging Branch) */}
+              <div className="w-full h-12 flex justify-center items-center relative my-1">
+                <svg className="w-full max-w-2xl h-12 overflow-visible" viewBox="0 0 600 48" preserveAspectRatio="none">
+                  <path
+                    d="M 300 0 C 300 24, 150 24, 150 48"
+                    fill="none"
+                    stroke="#10b981"
+                    strokeWidth="2.5"
+                    strokeDasharray="4 4"
+                    className="opacity-80"
+                  />
+                  <path
+                    d="M 300 0 C 300 24, 450 24, 450 48"
+                    fill="none"
+                    stroke="#10b981"
+                    strokeWidth="2.5"
+                    strokeDasharray="4 4"
+                    className="opacity-80"
+                  />
+                  <circle cx="300" cy="0" r="4" fill="#10b981" />
+                  <circle cx="150" cy="48" r="4" fill="#10b981" />
+                  <circle cx="450" cy="48" r="4" fill="#10b981" />
+                </svg>
+              </div>
+
+              {/* ── Tier 1: Core Foundations (Arrays & Two Pointers) ── */}
+              <div className="relative z-10 max-w-3xl mx-auto">
+                <div className="text-center mb-3">
+                  <span className="text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                    Tier 1 • Linear Memory &amp; Dual Pointers
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-12">
+                  {['arrays', 'two-pointers'].map((slug) => {
+                    const topic = mergedTopics.find((t) => t.slug === slug);
+                    if (!topic) return null;
+                    return renderTopicTreeNode(topic);
+                  })}
+                </div>
+              </div>
+
+              {/* Connector: Tier 1 -> Tier 2 (Direct Parallel Columns) */}
+              <div className="w-full h-12 flex justify-center items-center relative my-1">
+                <svg className="w-full max-w-2xl h-12 overflow-visible" viewBox="0 0 600 48" preserveAspectRatio="none">
+                  <path
+                    d="M 150 0 L 150 48"
+                    fill="none"
+                    stroke="#10b981"
+                    strokeWidth="2.5"
+                    strokeDasharray="4 4"
+                    className="opacity-80"
+                  />
+                  <path
+                    d="M 450 0 L 450 48"
+                    fill="none"
+                    stroke="#10b981"
+                    strokeWidth="2.5"
+                    strokeDasharray="4 4"
+                    className="opacity-80"
+                  />
+                  <circle cx="150" cy="48" r="4" fill="#10b981" />
+                  <circle cx="450" cy="48" r="4" fill="#10b981" />
+                </svg>
+              </div>
+
+              {/* ── Tier 2: Linear Data Structures (Strings & Linked Lists) ── */}
+              <div className="relative z-10 max-w-3xl mx-auto">
+                <div className="text-center mb-3">
+                  <span className="text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                    Tier 2 • String Slices &amp; Pointer Chains
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-12">
+                  {['strings', 'linked-lists'].map((slug) => {
+                    const topic = mergedTopics.find((t) => t.slug === slug);
+                    if (!topic) return null;
+                    return renderTopicTreeNode(topic);
+                  })}
+                </div>
+              </div>
+
+              {/* Connector: Tier 2 -> Tier 3 (Converging to Center Node) */}
+              <div className="w-full h-12 flex justify-center items-center relative my-1">
+                <svg className="w-full max-w-2xl h-12 overflow-visible" viewBox="0 0 600 48" preserveAspectRatio="none">
+                  <path
+                    d="M 150 0 C 150 24, 300 24, 300 48"
+                    fill="none"
+                    stroke="#10b981"
+                    strokeWidth="2.5"
+                    strokeDasharray="4 4"
+                    className="opacity-80"
+                  />
+                  <path
+                    d="M 450 0 C 450 24, 300 24, 300 48"
+                    fill="none"
+                    stroke="#10b981"
+                    strokeWidth="2.5"
+                    strokeDasharray="4 4"
+                    className="opacity-80"
+                  />
+                  <circle cx="300" cy="48" r="4" fill="#10b981" />
+                </svg>
+              </div>
+
+              {/* ── Tier 3: Abstract Memory (Stacks & Queues) ── */}
+              <div className="relative z-10 max-w-md mx-auto">
+                <div className="text-center mb-3">
+                  <span className="text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                    Tier 3 • LIFO / FIFO Monotonic Bridges
+                  </span>
+                </div>
+                {['stacks-queues'].map((slug) => {
+                  const topic = mergedTopics.find((t) => t.slug === slug);
+                  if (!topic) return null;
+                  return renderTopicTreeNode(topic);
+                })}
+              </div>
+
+              {/* Connector: Tier 3 -> Tier 4 (Diverging Branch to Non-Linear Trees & Graphs) */}
+              <div className="w-full h-12 flex justify-center items-center relative my-1">
+                <svg className="w-full max-w-2xl h-12 overflow-visible" viewBox="0 0 600 48" preserveAspectRatio="none">
+                  <path
+                    d="M 300 0 C 300 24, 150 24, 150 48"
+                    fill="none"
+                    stroke="#3b82f6"
+                    strokeWidth="2.5"
+                    strokeDasharray="4 4"
+                    className="opacity-80"
+                  />
+                  <path
+                    d="M 300 0 C 300 24, 450 24, 450 48"
+                    fill="none"
+                    stroke="#3b82f6"
+                    strokeWidth="2.5"
+                    strokeDasharray="4 4"
+                    className="opacity-80"
+                  />
+                  <circle cx="150" cy="48" r="4" fill="#3b82f6" />
+                  <circle cx="450" cy="48" r="4" fill="#3b82f6" />
+                </svg>
+              </div>
+
+              {/* ── Tier 4: Hierarchies & Networks (Trees & Graphs) ── */}
+              <div className="relative z-10 max-w-3xl mx-auto">
+                <div className="text-center mb-3">
+                  <span className="text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
+                    Tier 4 • Hierarchical Recursion &amp; Networks
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-12">
+                  {['trees', 'graphs'].map((slug) => {
+                    const topic = mergedTopics.find((t) => t.slug === slug);
+                    if (!topic) return null;
+                    return renderTopicTreeNode(topic);
+                  })}
+                </div>
+              </div>
+
+              {/* Connector: Tier 4 -> Tier 5 (Converging to Apex DP) */}
+              <div className="w-full h-12 flex justify-center items-center relative my-1">
+                <svg className="w-full max-w-2xl h-12 overflow-visible" viewBox="0 0 600 48" preserveAspectRatio="none">
+                  <path
+                    d="M 150 0 C 150 24, 300 24, 300 48"
+                    fill="none"
+                    stroke="#8b5cf6"
+                    strokeWidth="2.5"
+                    strokeDasharray="4 4"
+                    className="opacity-80"
+                  />
+                  <path
+                    d="M 450 0 C 450 24, 300 24, 300 48"
+                    fill="none"
+                    stroke="#8b5cf6"
+                    strokeWidth="2.5"
+                    strokeDasharray="4 4"
+                    className="opacity-80"
+                  />
+                  <circle cx="300" cy="48" r="4" fill="#8b5cf6" />
+                </svg>
+              </div>
+
+              {/* ── Tier 5: Advanced Optimization (Dynamic Programming) ── */}
+              <div className="relative z-10 max-w-md mx-auto">
+                <div className="text-center mb-3">
+                  <span className="text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-full bg-purple-100 text-purple-800 border border-purple-200">
+                    Tier 5 • Memoization &amp; State Tabulation
+                  </span>
+                </div>
+                {['dynamic-programming'].map((slug) => {
+                  const topic = mergedTopics.find((t) => t.slug === slug);
+                  if (!topic) return null;
+                  return renderTopicTreeNode(topic);
+                })}
+              </div>
+
             </div>
           ) : (
             /* ════════════════════════════════════════════════════════

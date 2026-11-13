@@ -100,11 +100,19 @@ export function LeaderboardRow({ user, onSelect }: LeaderboardRowProps) {
       <td className="py-3.5 px-4">
         <div className="flex items-center gap-3">
           <div
-            className={`w-10 h-10 rounded-2xl bg-gradient-to-br ${user.avatarGradient || 'from-slate-400 to-slate-600'} p-0.5 shadow-sm shrink-0 group-hover:scale-105 transition-transform`}
+            className={`w-10 h-10 rounded-2xl bg-gradient-to-br ${user.avatarGradient || 'from-slate-400 to-slate-600'} p-0.5 shadow-sm shrink-0 group-hover:scale-105 transition-transform overflow-hidden`}
           >
-            <div className="w-full h-full rounded-[14px] bg-slate-900 flex items-center justify-center font-black text-xs text-white">
-              {user.avatar}
-            </div>
+            {user.avatar && (user.avatar.startsWith('http://') || user.avatar.startsWith('https://') || user.avatar.startsWith('/')) ? (
+              <img
+                src={user.avatar}
+                alt={user.name}
+                className="w-full h-full rounded-[14px] object-cover bg-slate-900"
+              />
+            ) : (
+              <div className="w-full h-full rounded-[14px] bg-slate-900 flex items-center justify-center font-black text-xs text-white">
+                {user.avatar || user.name?.charAt(0).toUpperCase() || 'C'}
+              </div>
+            )}
           </div>
 
           <div className="min-w-0">
@@ -117,7 +125,11 @@ export function LeaderboardRow({ user, onSelect }: LeaderboardRowProps) {
                   YOU
                 </span>
               )}
-              {user.badge && <span className="text-xs">{user.badge}</span>}
+              {user.badge && (
+                <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200">
+                  {user.badge}
+                </span>
+              )}
             </div>
 
             <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mt-0.5">

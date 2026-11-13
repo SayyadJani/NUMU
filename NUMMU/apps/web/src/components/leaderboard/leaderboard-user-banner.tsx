@@ -13,10 +13,11 @@ import { CURRENT_USER_LEADERBOARD_STATS, TIER_CONFIG } from '@/data/leaderboard-
 interface LeaderboardUserBannerProps {
   onJumpToMe?: (() => void) | undefined;
   onInspectMe?: (() => void) | undefined;
+  stats?: typeof CURRENT_USER_LEADERBOARD_STATS;
 }
 
-export function LeaderboardUserBanner({ onJumpToMe, onInspectMe: _onInspectMe }: LeaderboardUserBannerProps) {
-  const stats = CURRENT_USER_LEADERBOARD_STATS;
+export function LeaderboardUserBanner({ onJumpToMe, onInspectMe: _onInspectMe, stats: propStats }: LeaderboardUserBannerProps) {
+  const stats = propStats || CURRENT_USER_LEADERBOARD_STATS;
   const rankDelta = stats.previousGlobalRank - stats.globalRank;
   const tierConfig = TIER_CONFIG[stats.tier];
 

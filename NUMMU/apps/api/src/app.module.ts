@@ -18,6 +18,7 @@ import { NotesModule } from './modules/notes/notes.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { PracticeModule } from './modules/practice/practice.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { LeaderboardModule } from './modules/leaderboard/leaderboard.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
@@ -54,6 +55,7 @@ import { AppService } from './app.service';
     AdminModule,
     PracticeModule,
     NotificationsModule,
+    LeaderboardModule,
   ],
   controllers: [AppController],
   providers: [

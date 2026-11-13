@@ -91,9 +91,9 @@ export function TestInstructionsModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
-      <div className="bg-white rounded-3xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden my-8 animate-in fade-in zoom-in-95">
+      <div className="bg-white dark:bg-[#0f172a] rounded-3xl max-w-2xl w-full shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden my-8 animate-in fade-in zoom-in-95">
         {/* Header */}
-        <div className="p-6 pb-4 border-b border-slate-100 flex items-start justify-between bg-gradient-to-b from-slate-50/80 to-white">
+        <div className="p-6 pb-4 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between bg-slate-50/90 dark:bg-[#111827]">
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-xl font-bold text-slate-900">{fullTest?.title || test.title}</h2>
@@ -123,7 +123,7 @@ export function TestInstructionsModal({
         </div>
 
         {/* Tab Navigation */}
-        <div className="px-6 pt-3 border-b border-slate-100 flex items-center gap-6 bg-slate-50/30 text-xs">
+        <div className="px-6 pt-3 border-b border-slate-100 dark:border-slate-800 flex items-center gap-6 bg-slate-50/30 dark:bg-slate-900/40 text-xs">
           <button
             onClick={() => setActiveTab('instructions')}
             className={`pb-2.5 font-bold transition-all border-b-2 ${
@@ -300,10 +300,10 @@ export function TestInstructionsModal({
         </div>
 
         {/* Footer Actions */}
-        <div className="p-4 px-6 bg-slate-50 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
+        <div className="p-4 px-6 bg-slate-50 dark:bg-[#111827] border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
           <button
             onClick={onClose}
-            className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-white transition-all"
+            className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800 transition-all"
           >
             Cancel
           </button>
@@ -322,7 +322,7 @@ export function TestInstructionsModal({
                 <button
                   onClick={handleResetAndRetake}
                   disabled={isResetting}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-all"
                   title="Reset proctoring and attempt to take this test again"
                 >
                   {isResetting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}

@@ -10,6 +10,7 @@ interface LeaderboardTableProps {
   onSelectUser?: ((user: LeaderboardEntry) => void) | undefined;
   onJumpToMe?: (() => void) | undefined;
   onResetFilters?: (() => void) | undefined;
+  currentUserRank?: number;
 }
 
 export function LeaderboardTable({
@@ -17,6 +18,7 @@ export function LeaderboardTable({
   onSelectUser,
   onJumpToMe,
   onResetFilters,
+  currentUserRank,
 }: LeaderboardTableProps) {
   if (entries.length === 0) {
     return (
@@ -65,7 +67,7 @@ export function LeaderboardTable({
             className="text-xs font-black text-emerald-800 hover:text-emerald-900 flex items-center gap-1.5 cursor-pointer bg-emerald-50 border border-emerald-200/90 px-3 py-1.5 rounded-xl transition-all shadow-2xs hover:bg-emerald-100 active:scale-95"
           >
             <Compass className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Locate My Rank (#142)</span>
+            <span>Locate My Rank (#{currentUserRank || 1})</span>
           </button>
         )}
       </div>
